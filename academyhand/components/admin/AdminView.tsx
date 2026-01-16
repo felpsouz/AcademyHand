@@ -1,13 +1,14 @@
 'use client'
 
 import React, { useState } from 'react';
-import { Home, Users, Video, DollarSign } from 'lucide-react';
-import { useAuth } from '@/hooks/useAuth';
-import { TabType } from '@/types';
+import { Home, Users, Video, DollarSign, AlertCircle, CheckCircle2 } from 'lucide-react';
 
-export const AdminView: React.FC = () => {
+type TabType = 'dashboard' | 'students' | 'videos' | 'financial';
+
+export const AdminView: React.FC<{
+  onLogout: () => void;
+}> = ({ onLogout }) => {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
-  const { logout } = useAuth();
 
   const tabs = [
     { id: 'dashboard' as TabType, label: 'Dashboard', icon: Home },
@@ -20,40 +21,54 @@ export const AdminView: React.FC = () => {
     switch (activeTab) {
       case 'dashboard':
         return (
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Dashboard</h2>
-            <p className="text-gray-600">Painel administrativo em construção...</p>
-          </div>
-        );
-      case 'students':
-        return (
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Alunos</h2>
-            <p className="text-gray-600">Gerenciamento de alunos em construção...</p>
-          </div>
-        );
-      case 'videos':
-        return (
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Vídeos</h2>
-            <p className="text-gray-600">Gerenciamento de vídeos em construção...</p>
-          </div>
-        );
-      case 'financial':
-        return (
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Financeiro</h2>
-            <p className="text-gray-600">Controle financeiro em construção...</p>
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-white p-6 rounded-lg shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-gray-600">Total de Alunos</span>
+                  <Users className="w-5 h-5 text-blue-600" />
+                </div>
+                <p className="text-3xl font-bold text-gray-900">24</p>
+              </div>
+
+              <div className="bg-white p-6 rounded-lg shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-gray-600">Receita Mensal</span>
+                  <DollarSign className="w-5 h-5 text-green-600" />
+                </div>
+                <p className="text-3xl font-bold text-gray-900">R$ 4.800,00</p>
+              </div>
+
+              <div className="bg-white p-6 rounded-lg shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-gray-600">Presenças Hoje</span>
+                  <CheckCircle2 className="w-5 h-5 text-purple-600" />
+                </div>
+                <p className="text-3xl font-bold text-gray-900">15</p>
+              </div>
+
+              <div className="bg-white p-6 rounded-lg shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-gray-600">Inadimplentes</span>
+                  <AlertCircle className="w-5 h-5 text-orange-600" />
+                </div>
+                <p className="text-3xl font-bold text-gray-900">3</p>
+              </div>
+            </div>
           </div>
         );
       default:
-        return null;
+        return (
+          <div className="bg-white rounded-lg shadow-sm p-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">{activeTab}</h2>
+            <p className="text-gray-600">Conteúdo em construção...</p>
+          </div>
+        );
     }
   };
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="bg-white shadow-sm sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -68,14 +83,13 @@ export const AdminView: React.FC = () => {
             </div>
             
             <button
-              onClick={logout}
+              onClick={onLogout}
               className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
             >
               Sair
             </button>
           </div>
 
-          {/* Navigation Tabs */}
           <nav className="flex gap-2 mt-4 overflow-x-auto">
             {tabs.map(tab => {
               const Icon = tab.icon;

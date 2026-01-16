@@ -2,32 +2,24 @@
 
 import React, { useState } from 'react';
 import { LogIn, Users } from 'lucide-react';
-import { useAuth } from '@/hooks/useAuth';
-import { useToast } from '@/hooks/useToast';
 
-export const LoginView: React.FC = () => {
+export const LoginView: React.FC<{
+  onLogin: (email: string, password: string) => void;
+  isLoading: boolean;
+}> = ({ onLogin, isLoading }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
-  const { showToast } = useToast();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!email || !password) {
-      showToast('Preencha todos os campos', 'error');
+      // Mostrar erro diretamente no form se quiser
+      console.error('Preencha todos os campos');
       return;
     }
 
-    try {
-      setIsLoading(true);
-      await login(email, password);
-    } catch (error: any) {
-      showToast(error.message || 'Erro ao fazer login', 'error');
-    } finally {
-      setIsLoading(false);
-    }
+    onLogin(email, password);
   };
 
   return (
@@ -87,6 +79,9 @@ export const LoginView: React.FC = () => {
         <div className="mt-6 pt-6 border-t border-gray-200">
           <p className="text-sm text-gray-600 text-center">
             Admin: admin@imperio.com / admin123
+          </p>
+          <p className="text-sm text-gray-500 text-center mt-2">
+            Aluno: qualquer email/senha
           </p>
         </div>
       </div>

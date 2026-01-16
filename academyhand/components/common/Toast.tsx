@@ -2,7 +2,7 @@
 
 import React, { useEffect } from 'react';
 import { X, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
-import { ToastMessage } from '@/types';
+import { ToastMessage, ToastType } from '@/types';
 
 interface ToastProps extends ToastMessage {
   onClose: () => void;
@@ -14,14 +14,14 @@ export const Toast: React.FC<ToastProps> = ({ message, type, onClose }) => {
     return () => clearTimeout(timer);
   }, [onClose]);
 
-  const styles = {
+  const styles: Record<ToastType, string> = {
     success: 'bg-emerald-500 text-white',
     error: 'bg-red-500 text-white',
     warning: 'bg-amber-500 text-white',
     info: 'bg-blue-500 text-white'
   };
 
-  const icons = {
+  const icons: Record<ToastType, React.ComponentType<{ className?: string }>> = {
     success: CheckCircle,
     error: XCircle,
     warning: AlertCircle,
