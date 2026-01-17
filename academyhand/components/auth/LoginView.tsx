@@ -3,22 +3,17 @@
 import React, { useState } from 'react';
 import { LogIn, Users } from 'lucide-react';
 
-export const LoginView: React.FC<{
+interface LoginViewProps {
   onLogin: (email: string, password: string) => void;
   isLoading: boolean;
-}> = ({ onLogin, isLoading }) => {
+}
+
+export const LoginView: React.FC<LoginViewProps> = ({ onLogin, isLoading }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!email || !password) {
-      // Mostrar erro diretamente no form se quiser
-      console.error('Preencha todos os campos');
-      return;
-    }
-
     onLogin(email, password);
   };
 

@@ -1,21 +1,20 @@
 'use client'
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { ViewMode, Student } from '@/types';
+import React, { createContext, useContext, useState, ReactNode } from 'react';
+import { ViewMode } from '@/types';
 
 interface AuthContextType {
   user: any;
   isAdmin: boolean;
-  currentStudent: Student | null;
+  currentStudent: any;
   activeView: ViewMode;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
+  logout: () => void;
   setActiveView: (view: ViewMode) => void;
-  setCurrentStudent: (student: Student | null) => void;
+  setCurrentStudent: (student: any) => void;
 }
 
-// Corrigir aqui: criar e exportar o contexto
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const useAuth = () => {
@@ -33,22 +32,22 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [currentStudent, setCurrentStudent] = useState<Student | null>(null);
+  const [currentStudent, setCurrentStudent] = useState<any>(null);
   const [activeView, setActiveView] = useState<ViewMode>('login');
   const [isLoading, setIsLoading] = useState(false);
 
   const login = async (email: string, password: string) => {
+    setIsLoading(true);
     try {
-      setIsLoading(true);
       console.log('Login attempt:', { email, password });
       
-      // Simulação de login - você substituirá por Firebase depois
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       if (email === 'admin@imperio.com' && password === 'admin123') {
         setIsAdmin(true);
         setActiveView('admin');
       } else {
-        // Simulando um aluno
-        const mockStudent: Student = {
+        const mockStudent = {
           id: '1',
           name: 'Aluno Demo',
           email: email,
@@ -77,15 +76,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  const logout = async () => {
-    try {
-      setUser(null);
-      setIsAdmin(false);
-      setCurrentStudent(null);
-      setActiveView('login');
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
+  const logout = () => {
+    setUser(null);
+    setIsAdmin(false);
+    setCurrentStudent(null);
+    setActiveView('login');
   };
 
   const value = {

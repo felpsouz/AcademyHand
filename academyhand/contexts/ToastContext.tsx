@@ -9,7 +9,6 @@ interface ToastContextType {
   showToast: (message: string, type?: ToastType) => void;
 }
 
-// Certifique-se que está exportando o contexto
 export const ToastContext = createContext<ToastContextType | undefined>(undefined);
 
 export const useToast = () => {
@@ -36,12 +35,8 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({ children }) => {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
-  const contextValue = {
-    showToast
-  };
-
   return (
-    <ToastContext.Provider value={contextValue}>
+    <ToastContext.Provider value={{ showToast }}>
       {children}
       {toasts.map(toast => (
         <Toast
