@@ -1,6 +1,13 @@
 {
-  "buildCommand": "npm run build",
-  "installCommand": "npm install",
+  "buildCommand": "cd academyhand && npm install && npm run build",
+  "outputDirectory": "academyhand/.next",
+  "devCommand": "cd academyhand && npm run dev",
+  "installCommand": "cd academyhand && npm install",
   "framework": "nextjs",
-  "rootDirectory": "academyhand"
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/academyhand/$1"
+    }
+  ]
 }
