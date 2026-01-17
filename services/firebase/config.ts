@@ -17,8 +17,9 @@ let auth: Auth;
 let db: Firestore;
 let storage: FirebaseStorage;
 
-// Validar se as variáveis de ambiente estão configuradas
+// Só inicializa no browser (cliente)
 if (typeof window !== 'undefined') {
+  // Validar variáveis de ambiente
   const missingVars = [];
   if (!process.env.NEXT_PUBLIC_FIREBASE_API_KEY) missingVars.push('NEXT_PUBLIC_FIREBASE_API_KEY');
   if (!process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN) missingVars.push('NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN');
@@ -31,28 +32,31 @@ if (typeof window !== 'undefined') {
     console.error('🔥 Firebase Error: Variáveis de ambiente faltando:', missingVars);
     console.error('📝 Configure o arquivo .env.local com as credenciais do Firebase Console');
   }
-}
 
-// Inicializar Firebase
-try {
-  if (!getApps().length) {
-    app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    db = getFirestore(app);
-    storage = getStorage(app);
-    
-    if (typeof window !== 'undefined') {
+  // Inicializar Firebase apenas no cliente
+  try {
+    if (!getApps().length) {
+      app = initializeApp(firebaseConfig);
+      auth = getAuth(app);
+      db = getFirestore(app);
+      storage = getStorage(app);
       console.log('✅ Firebase initialized successfully');
+    } else {
+      app = getApps()[0];
+      auth = getAuth(app);
+      db = getFirestore(app);
+      storage = getStorage(app);
     }
-  } else {
-    app = getApps()[0];
-    auth = getAuth(app);
-    db = getFirestore(app);
-    storage = getStorage(app);
+  } catch (error) {
+    console.error('❌ Firebase initialization error:', error);
+    throw error;
   }
-} catch (error) {
-  console.error('Firebase initialization error:', error);
-  throw error;
+} else {
+  // Mock para SSR - evita erros no servidor
+  app = null as any;
+  auth = null as any;
+  db = null as any;
+  storage = null as any;
 }
 
 export { app, auth, db, storage };
