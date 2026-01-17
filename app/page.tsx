@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { useAuth } from '@/contexts/AuthContext';
 import { LoginView } from '@/components/auth/LoginView';
 import { AdminView } from '@/components/admin/AdminView';
