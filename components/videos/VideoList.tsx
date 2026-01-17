@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Video, BeltLevel } from '@/types';
-import { Clock, Eye, PlayCircle, Edit2, Trash2 } from 'lucide-react';
+import { Clock, PlayCircle, Edit2, Trash2 } from 'lucide-react';
 
 interface VideoListProps {
   videos: Video[];
@@ -21,9 +21,9 @@ export const VideoList: React.FC<VideoListProps> = ({
 
   const filteredVideos = filterLevel === 'all' 
     ? videos 
-    : videos.filter(video => video.level === filterLevel);
+    : videos.filter(video => video.belt === filterLevel);
 
-  const getBeltColor = (level: BeltLevel): string => {
+  const getBeltColor = (belt: BeltLevel): string => {
     const colors = {
       'Branca': 'bg-gray-100 text-gray-800',
       'Azul': 'bg-blue-100 text-blue-800',
@@ -31,7 +31,14 @@ export const VideoList: React.FC<VideoListProps> = ({
       'Marrom': 'bg-amber-100 text-amber-800',
       'Preta': 'bg-black text-white'
     };
-    return colors[level];
+    return colors[belt];
+  };
+
+  const formatDuration = (seconds?: number): string => {
+    if (!seconds) return '00:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
   if (videos.length === 0) {
@@ -69,8 +76,8 @@ export const VideoList: React.FC<VideoListProps> = ({
             <div className="p-6">
               <div className="flex items-start justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">{video.title}</h3>
-                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getBeltColor(video.level)}`}>
-                  {video.level}
+                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getBeltColor(video.belt)}`}>
+                  {video.belt}
                 </span>
               </div>
               
@@ -78,14 +85,10 @@ export const VideoList: React.FC<VideoListProps> = ({
                 {video.description}
               </p>
               
-              <div className="flex items-center justify-between text-sm text-gray-500 mb-4">
+              <div className="flex items-center text-sm text-gray-500 mb-4">
                 <span className="flex items-center gap-1">
                   <Clock className="w-4 h-4" />
-                  {video.duration}
-                </span>
-                <span className="flex items-center gap-1">
-                  <Eye className="w-4 h-4" />
-                  {video.views} visualizações
+                  {formatDuration(video.duration)}
                 </span>
               </div>
               

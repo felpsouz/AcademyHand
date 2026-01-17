@@ -18,8 +18,8 @@ export const VideoForm: React.FC<VideoFormProps> = ({ video, onSuccess }) => {
     title: '',
     description: '',
     url: '',
-    level: 'Branca' as BeltLevel,
-    duration: '00:00',
+    belt: 'Branca' as BeltLevel,
+    duration: 0,
   });
 
   useEffect(() => {
@@ -28,8 +28,8 @@ export const VideoForm: React.FC<VideoFormProps> = ({ video, onSuccess }) => {
         title: video.title || '',
         description: video.description || '',
         url: video.url || '',
-        level: video.level || 'Branca',
-        duration: video.duration || '00:00',
+        belt: video.belt || 'Branca',
+        duration: video.duration || 0,
       });
     }
   }, [video]);
@@ -40,7 +40,7 @@ export const VideoForm: React.FC<VideoFormProps> = ({ video, onSuccess }) => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: value
+      [name]: name === 'duration' ? Number(value) : value
     }));
   };
 
@@ -137,8 +137,8 @@ export const VideoForm: React.FC<VideoFormProps> = ({ video, onSuccess }) => {
             Nível *
           </label>
           <select
-            name="level"
-            value={formData.level}
+            name="belt"
+            value={formData.belt}
             onChange={handleChange}
             required
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
@@ -154,15 +154,15 @@ export const VideoForm: React.FC<VideoFormProps> = ({ video, onSuccess }) => {
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Duração
+            Duração (segundos)
           </label>
           <input
-            type="text"
+            type="number"
             name="duration"
             value={formData.duration}
             onChange={handleChange}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
-            placeholder="00:00"
+            placeholder="0"
             disabled={loading}
           />
         </div>

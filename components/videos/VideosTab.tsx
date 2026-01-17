@@ -13,48 +13,18 @@ export const VideosTab: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingVideo, setEditingVideo] = useState<Video | null>(null);
 
-  // Mock data temporário
-  const [videos, setVideos] = useState<Video[]>([
-    {
-      id: '1',
-      title: 'Passagem de guarda básica',
-      description: 'Técnica fundamental para iniciantes',
-      url: 'https://youtube.com/watch?v=abc123',
-      level: 'Branca',
-      duration: '15:30',
-      views: 245,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-    {
-      id: '2',
-      title: 'Finalização com triângulo',
-      description: 'Técnica avançada de finalização',
-      url: 'https://youtube.com/watch?v=def456',
-      level: 'Azul',
-      duration: '22:10',
-      views: 189,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-    {
-      id: '3',
-      title: 'Defesa contra estrangulamento',
-      description: 'Técnicas de defesa essenciais',
-      url: 'https://youtube.com/watch?v=ghi789',
-      level: 'Roxa',
-      duration: '18:45',
-      views: 312,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-  ]);
+  // Estado dos vídeos - vazio inicialmente
+  const [videos, setVideos] = useState<Video[]>([]);
 
   const handleAddVideo = (videoData: Partial<Video>) => {
     const newVideo: Video = {
       id: Date.now().toString(),
-      ...videoData as Omit<Video, 'id'>,
-      views: 0,
+      title: videoData.title || '',
+      description: videoData.description || '',
+      url: videoData.url || '',
+      belt: videoData.belt || 'Branca',
+      category: videoData.category || 'Geral',
+      duration: videoData.duration,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };

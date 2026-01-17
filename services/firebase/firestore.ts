@@ -257,7 +257,7 @@ export const firestoreService = {
       
       return {
         data,
-        lastDoc: lastVisible,
+        lastDoc: lastVisible as QueryDocumentSnapshot<DocumentData> | null,
         hasMore: querySnapshot.docs.length === pageSize
       };
     } catch (error) {

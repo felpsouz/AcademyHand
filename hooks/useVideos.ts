@@ -55,9 +55,9 @@ export const useVideos = () => {
         title: videoData.title.trim(),
         description: videoData.description?.trim() || '',
         url: videoData.url.trim(),
-        level: videoData.level || 'Branca',
-        duration: videoData.duration || '00:00',
-        views: 0,
+        belt: videoData.belt || 'Branca',
+        category: videoData.category || 'Geral',
+        duration: videoData.duration || 0,
         createdAt: now,
         updatedAt: now
       };
@@ -132,29 +132,9 @@ export const useVideos = () => {
     }
   }, [showToast]);
 
-  // Incrementar visualizações
-  const incrementViews = useCallback(async (id: string) => {
-    try {
-      const video = videos.find(v => v.id === id);
-      if (!video) return;
-
-      const newViews = video.views + 1;
-      await firestoreService.updateDocument('videos', id, {
-        views: newViews,
-        updatedAt: new Date().toISOString()
-      });
-
-      setVideos(prev => prev.map(v => 
-        v.id === id ? { ...v, views: newViews } : v
-      ));
-    } catch (err) {
-      console.error('Error incrementing views:', err);
-    }
-  }, [videos]);
-
   // Filtrar vídeos por nível
-  const getVideosByLevel = useCallback((level: BeltLevel): Video[] => {
-    return videos.filter(v => v.level === level);
+  const getVideosByLevel = useCallback((belt: BeltLevel): Video[] => {
+    return videos.filter(v => v.belt === belt);
   }, [videos]);
 
   // Obter vídeo por ID
@@ -175,7 +155,6 @@ export const useVideos = () => {
     addVideo,
     updateVideo,
     deleteVideo,
-    incrementViews,
     getVideosByLevel,
     getVideoById
   };
