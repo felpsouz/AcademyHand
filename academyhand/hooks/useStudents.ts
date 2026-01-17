@@ -67,11 +67,11 @@ export const useStudents = () => {
       }
 
       const now = new Date().toISOString();
-      const newStudentData: Omit<Student, 'id'> = {
+      
+      // Criar objeto base (sem valores undefined)
+      const newStudentData: any = {
         name: studentData.name.trim(),
         email: studentData.email.toLowerCase().trim(),
-        cpf: studentData.cpf?.trim() || undefined,
-        phone: studentData.phone?.trim() || undefined,
         belt: studentData.belt || 'Branca',
         status: studentData.status || 'active',
         paymentStatus: 'paid',
@@ -89,8 +89,19 @@ export const useStudents = () => {
         }]
       };
 
+      // Adicionar campos opcionais SOMENTE se tiverem valor
+      if (studentData.cpf?.trim()) {
+        newStudentData.cpf = studentData.cpf.trim();
+      }
+      
+      if (studentData.phone?.trim()) {
+        newStudentData.phone = studentData.phone.trim();
+      }
+
       const newStudent = await firestoreService.addDocument<Student>('students', newStudentData);
-      setStudents(prev => [...prev, newStudent]);
+      
+      // ✅ ATUALIZAR ESTADO LOCAL IMEDIATAMENTE
+      setStudents(prev => [...prev, newStudent].sort((a, b) => a.name.localeCompare(b.name)));
       
       showToast('Aluno cadastrado com sucesso!', 'success');
       return newStudent;
@@ -124,10 +135,24 @@ export const useStudents = () => {
         throw new Error('Aluno não encontrado');
       }
 
-      const updatedData: Partial<Student> = {
-        ...updates,
+      // Criar objeto de atualização sem valores undefined
+      const updatedData: any = {
         updatedAt: new Date().toISOString()
       };
+
+      // Adicionar campos que têm valor
+      Object.keys(updates).forEach(key => {
+        const value = (updates as any)[key];
+        if (value !== undefined) {
+          if (typeof value === 'string') {
+            if (value.trim()) {
+              updatedData[key] = value.trim();
+            }
+          } else {
+            updatedData[key] = value;
+          }
+        }
+      });
 
       // Se mudou a faixa, atualizar histórico
       if (updates.belt && updates.belt !== student.belt) {
@@ -144,10 +169,10 @@ export const useStudents = () => {
 
       await firestoreService.updateDocument('students', id, updatedData);
       
-      // Atualizar estado local
+      // ✅ ATUALIZAR ESTADO LOCAL IMEDIATAMENTE
       setStudents(prev => prev.map(s => 
         s.id === id ? { ...s, ...updatedData } : s
-      ));
+      ).sort((a, b) => a.name.localeCompare(b.name)));
       
       showToast('Aluno atualizado com sucesso!', 'success');
     } catch (err: any) {
@@ -168,6 +193,8 @@ export const useStudents = () => {
       setError(null);
       
       await firestoreService.deleteDocument('students', id);
+      
+      // ✅ ATUALIZAR ESTADO LOCAL IMEDIATAMENTE
       setStudents(prev => prev.filter(s => s.id !== id));
       
       showToast('Aluno removido com sucesso', 'info');
@@ -212,19 +239,17 @@ export const useStudents = () => {
       await firestoreService.addDocument('attendances', attendanceData);
 
       // Atualizar contador do aluno
-      const updatedStudent = {
-        ...student,
-        totalAttendances: student.totalAttendances + 1,
-        updatedAt: now.toISOString()
-      };
+      const newTotal = student.totalAttendances + 1;
+      const updatedAt = now.toISOString();
 
       await firestoreService.updateDocument('students', studentId, {
-        totalAttendances: updatedStudent.totalAttendances,
-        updatedAt: updatedStudent.updatedAt
+        totalAttendances: newTotal,
+        updatedAt: updatedAt
       });
 
+      // ✅ ATUALIZAR ESTADO LOCAL IMEDIATAMENTE
       setStudents(prev => prev.map(s => 
-        s.id === studentId ? updatedStudent : s
+        s.id === studentId ? { ...s, totalAttendances: newTotal, updatedAt } : s
       ));
 
       showToast('Presença confirmada!', 'success');

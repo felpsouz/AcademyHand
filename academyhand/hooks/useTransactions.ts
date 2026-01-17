@@ -50,31 +50,87 @@ export const useTransactions = () => {
       }
 
       const now = new Date().toISOString();
-      const newTransactionData: Omit<Transaction, 'id'> = {
+      
+      // Criar objeto base
+      const newTransactionData: any = {
         type: transactionData.type || 'revenue',
         amount: transactionData.amount,
         description: transactionData.description.trim(),
         category: transactionData.category?.trim() || 'Outros',
-        paymentMethod: transactionData.paymentMethod,
-        studentId: transactionData.studentId,
-        studentName: transactionData.studentName,
         createdAt: now,
         updatedAt: now
       };
 
-      const newTransaction = await firestoreService.addDocument<Transaction>('transactions', newTransactionData);
-      setTransactions(prev => [newTransaction, ...prev]);
-      
-      // Se for uma receita vinculada a aluno, atualizar status de pagamento
-      if (newTransaction.type === 'revenue' && newTransaction.studentId) {
-        // Aqui você pode implementar a lógica para atualizar o status do aluno
-        // Por exemplo, marcar como pago e atualizar data do próximo vencimento
+      // Adicionar campos opcionais somente se tiverem valor
+      if (transactionData.paymentMethod) {
+        newTransactionData.paymentMethod = transactionData.paymentMethod;
       }
+
+      if (transactionData.studentId?.trim()) {
+        newTransactionData.studentId = transactionData.studentId.trim();
+      }
+
+      if (transactionData.studentName?.trim()) {
+        newTransactionData.studentName = transactionData.studentName.trim();
+      }
+
+      if (transactionData.notes?.trim()) {
+        newTransactionData.notes = transactionData.notes.trim();
+      }
+
+      const newTransaction = await firestoreService.addDocument<Transaction>('transactions', newTransactionData);
+      
+      // ✅ ATUALIZAR ESTADO LOCAL IMEDIATAMENTE
+      setTransactions(prev => [newTransaction, ...prev]);
       
       showToast('Transação registrada com sucesso!', 'success');
       return newTransaction;
     } catch (err: any) {
       const errorMsg = err.message || 'Erro ao registrar transação';
+      setError(errorMsg);
+      showToast(errorMsg, 'error');
+      console.error(err);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [showToast]);
+
+  // Atualizar transação
+  const updateTransaction = useCallback(async (id: string, updates: Partial<Transaction>) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Criar objeto de atualização sem undefined
+      const updatedData: any = {
+        updatedAt: new Date().toISOString()
+      };
+
+      // Adicionar campos que têm valor
+      Object.keys(updates).forEach(key => {
+        const value = (updates as any)[key];
+        if (value !== undefined) {
+          if (typeof value === 'string') {
+            if (value.trim()) {
+              updatedData[key] = value.trim();
+            }
+          } else {
+            updatedData[key] = value;
+          }
+        }
+      });
+
+      await firestoreService.updateDocument('transactions', id, updatedData);
+      
+      // ✅ ATUALIZAR ESTADO LOCAL IMEDIATAMENTE
+      setTransactions(prev => prev.map(t => 
+        t.id === id ? { ...t, ...updatedData } : t
+      ));
+      
+      showToast('Transação atualizada com sucesso!', 'success');
+    } catch (err: any) {
+      const errorMsg = err.message || 'Erro ao atualizar transação';
       setError(errorMsg);
       showToast(errorMsg, 'error');
       console.error(err);
@@ -91,6 +147,8 @@ export const useTransactions = () => {
       setError(null);
       
       await firestoreService.deleteDocument('transactions', id);
+      
+      // ✅ ATUALIZAR ESTADO LOCAL IMEDIATAMENTE
       setTransactions(prev => prev.filter(t => t.id !== id));
       
       showToast('Transação excluída com sucesso', 'info');
@@ -126,10 +184,12 @@ export const useTransactions = () => {
 
     const profit = revenue - expenses;
 
+    // Calcular mês anterior para comparação
     const lastMonth = new Date(currentYear, currentMonth - 1, 1);
     const lastMonthTransactions = transactions.filter(t => {
       const tDate = new Date(t.createdAt);
-      return tDate.getMonth() === lastMonth.getMonth() && tDate.getFullYear() === lastMonth.getFullYear();
+      return tDate.getMonth() === lastMonth.getMonth() && 
+             tDate.getFullYear() === lastMonth.getFullYear();
     });
 
     const lastMonthRevenue = lastMonthTransactions
@@ -173,6 +233,7 @@ export const useTransactions = () => {
     error,
     loadTransactions,
     addTransaction,
+    updateTransaction,
     deleteTransaction,
     getMonthlyStats,
     getTransactionsByType,

@@ -4,16 +4,14 @@ import React, { useState } from 'react';
 import { Transaction, TransactionType } from '@/types';
 import { formatCurrency } from '@/utils/formatters';
 import { TrendingUp, TrendingDown, Trash2 } from 'lucide-react';
+import { useTransactions } from '@/hooks/useTransactions';
 
 interface TransactionListProps {
   transactions: Transaction[];
-  onDelete: (id: string) => void;
 }
 
-export const TransactionList: React.FC<TransactionListProps> = ({
-  transactions,
-  onDelete
-}) => {
+export const TransactionList: React.FC<TransactionListProps> = ({ transactions }) => {
+  const { deleteTransaction } = useTransactions();
   const [filterType, setFilterType] = useState<TransactionType | 'all'>('all');
   const [filterMonth, setFilterMonth] = useState<string>('all');
 
@@ -54,6 +52,12 @@ export const TransactionList: React.FC<TransactionListProps> = ({
 
   const stats = calculateStats();
 
+  const handleDelete = async (id: string) => {
+    if (confirm('Tem certeza que deseja excluir esta transação?')) {
+      await deleteTransaction(id);
+    }
+  };
+
   if (transactions.length === 0) {
     return (
       <div className="text-center py-12">
@@ -63,48 +67,48 @@ export const TransactionList: React.FC<TransactionListProps> = ({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Filtros e Estatísticas */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
         <div className="bg-white p-4 rounded-lg shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-gray-600">Receita</span>
-            <TrendingUp className="w-5 h-5 text-green-600" />
+            <span className="text-xs sm:text-sm text-gray-600">Receita</span>
+            <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-green-600 flex-shrink-0" />
           </div>
-          <p className="text-2xl font-bold text-gray-900">
+          <p className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900 truncate">
             {formatCurrency(stats.revenue)}
           </p>
         </div>
 
         <div className="bg-white p-4 rounded-lg shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-gray-600">Despesas</span>
-            <TrendingDown className="w-5 h-5 text-red-600" />
+            <span className="text-xs sm:text-sm text-gray-600">Despesas</span>
+            <TrendingDown className="w-4 h-4 sm:w-5 sm:h-5 text-red-600 flex-shrink-0" />
           </div>
-          <p className="text-2xl font-bold text-gray-900">
+          <p className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900 truncate">
             {formatCurrency(stats.expenses)}
           </p>
         </div>
 
         <div className="bg-white p-4 rounded-lg shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-gray-600">Saldo</span>
+            <span className="text-xs sm:text-sm text-gray-600">Saldo</span>
             <div className={`${stats.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
               {stats.profit >= 0 ? '▲' : '▼'}
             </div>
           </div>
-          <p className={`text-2xl font-bold ${stats.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+          <p className={`text-lg sm:text-xl lg:text-2xl font-bold truncate ${stats.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
             {formatCurrency(stats.profit)}
           </p>
         </div>
       </div>
 
       {/* Filtros */}
-      <div className="flex gap-4">
+      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
         <select
           value={filterType}
           onChange={(e) => setFilterType(e.target.value as TransactionType | 'all')}
-          className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
+          className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent text-sm"
         >
           <option value="all">Todos os Tipos</option>
           <option value="revenue">Receitas</option>
@@ -114,7 +118,7 @@ export const TransactionList: React.FC<TransactionListProps> = ({
         <select
           value={filterMonth}
           onChange={(e) => setFilterMonth(e.target.value)}
-          className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
+          className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent text-sm"
         >
           <option value="all">Todos os Meses</option>
           {getMonthsOptions().map(month => {
@@ -130,8 +134,8 @@ export const TransactionList: React.FC<TransactionListProps> = ({
         </select>
       </div>
 
-      {/* Tabela de Transações */}
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+      {/* Tabela de Transações - Versão Desktop */}
+      <div className="hidden lg:block bg-white rounded-lg shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
@@ -184,13 +188,12 @@ export const TransactionList: React.FC<TransactionListProps> = ({
                   </td>
                   <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-semibold">
                     <span className={transaction.type === 'revenue' ? 'text-green-600' : 'text-red-600'}>
-                      {transaction.type === 'revenue' ? '+' : '-'}
-                      {formatCurrency(transaction.amount)}
+                      {transaction.type === 'revenue' ? '+' : '-'}{formatCurrency(transaction.amount)}
                     </span>
                   </td>
                   <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <button
-                      onClick={() => onDelete(transaction.id)}
+                      onClick={() => handleDelete(transaction.id)}
                       className="text-red-600 hover:text-red-900"
                       title="Excluir"
                     >
@@ -202,6 +205,51 @@ export const TransactionList: React.FC<TransactionListProps> = ({
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Cards de Transações - Versão Mobile/Tablet */}
+      <div className="lg:hidden space-y-3">
+        {filteredTransactions.map(transaction => (
+          <div key={transaction.id} className="bg-white p-4 rounded-lg shadow-sm">
+            <div className="flex items-start justify-between mb-2">
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-gray-900 truncate">{transaction.description}</p>
+                {transaction.studentName && (
+                  <p className="text-xs text-gray-500 truncate">{transaction.studentName}</p>
+                )}
+              </div>
+              <button
+                onClick={() => handleDelete(transaction.id)}
+                className="text-red-600 hover:text-red-900 ml-2 flex-shrink-0"
+                title="Excluir"
+              >
+                <Trash2 className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-500">
+                {new Date(transaction.createdAt).toLocaleDateString('pt-BR')}
+              </span>
+              <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                transaction.type === 'revenue'
+                  ? 'bg-green-100 text-green-800'
+                  : 'bg-red-100 text-red-800'
+              }`}>
+                {transaction.type === 'revenue' ? 'Receita' : 'Despesa'}
+              </span>
+            </div>
+            
+            <div className="mt-2 flex items-center justify-between">
+              <span className="text-sm text-gray-600">{transaction.category}</span>
+              <span className={`text-lg font-bold ${
+                transaction.type === 'revenue' ? 'text-green-600' : 'text-red-600'
+              }`}>
+                {transaction.type === 'revenue' ? '+' : '-'}{formatCurrency(transaction.amount)}
+              </span>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

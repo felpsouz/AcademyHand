@@ -26,6 +26,30 @@ export interface UserData {
   studentId?: string;
 }
 
+// Limpar objeto de valores undefined
+const removeUndefined = (obj: any): any => {
+  if (obj === null || obj === undefined) {
+    return null;
+  }
+  
+  if (Array.isArray(obj)) {
+    return obj.map(removeUndefined);
+  }
+  
+  if (typeof obj === 'object') {
+    const cleaned: any = {};
+    Object.keys(obj).forEach(key => {
+      const value = obj[key];
+      if (value !== undefined) {
+        cleaned[key] = removeUndefined(value);
+      }
+    });
+    return cleaned;
+  }
+  
+  return obj;
+};
+
 // Converter timestamps para Date
 const convertTimestamps = (data: any): any => {
   if (!data) return data;
@@ -129,14 +153,21 @@ export const firestoreService = {
   // Adicionar novo documento
   async addDocument<T>(collectionName: string, data: Omit<T, 'id'>): Promise<T> {
     try {
+      // Remover valores undefined do objeto
+      const cleanedData = removeUndefined(data);
+      
       // Adicionar timestamps
       const dataWithTimestamps = {
-        ...data,
+        ...cleanedData,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
       
+      console.log('Saving to Firestore:', collectionName, dataWithTimestamps);
+      
       const docRef = await addDoc(collection(db, collectionName), dataWithTimestamps);
+      
+      console.log('Document created with ID:', docRef.id);
       
       // Buscar o documento criado para garantir que temos todos os dados
       const createdDoc = await this.getDocument<T>(collectionName, docRef.id);
@@ -155,9 +186,12 @@ export const firestoreService = {
   // Atualizar documento
   async updateDocument<T>(collectionName: string, id: string, data: Partial<T>): Promise<void> {
     try {
+      // Remover valores undefined
+      const cleanedData = removeUndefined(data);
+      
       const docRef = doc(db, collectionName, id);
       const updateData = {
-        ...data,
+        ...cleanedData,
         updatedAt: serverTimestamp()
       };
       

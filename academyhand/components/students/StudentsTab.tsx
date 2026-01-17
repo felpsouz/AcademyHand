@@ -5,50 +5,26 @@ import { Search, Plus, Download, Edit2, Trash2, CheckCircle2 } from 'lucide-reac
 import { Student } from '@/types';
 import { StudentForm } from './StudentForm';
 import { Modal } from '@/components/common/Modal';
-import { useToast } from '@/hooks/useToast';
+import { useStudents } from '@/hooks/useStudents';
+import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 
 export const StudentsTab: React.FC = () => {
-  const { showToast } = useToast();
+  const { 
+    students, 
+    loading, 
+    addStudent, 
+    updateStudent, 
+    deleteStudent, 
+    markAttendance 
+  } = useStudents();
+
   const [searchTerm, setSearchTerm] = useState('');
   const [filterBelt, setFilterBelt] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [showModal, setShowModal] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
 
-  // Mock data temporário
-  const [students, setStudents] = useState<Student[]>([
-    {
-      id: '1',
-      name: 'João Silva',
-      email: 'joao@email.com',
-      belt: 'Branca',
-      status: 'active',
-      paymentStatus: 'paid',
-      monthlyFee: 200,
-      lastPayment: new Date().toISOString(),
-      nextPaymentDue: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      totalAttendances: 12,
-      beltHistory: []
-    },
-    {
-      id: '2',
-      name: 'Maria Santos',
-      email: 'maria@email.com',
-      belt: 'Azul',
-      status: 'active',
-      paymentStatus: 'paid',
-      monthlyFee: 200,
-      lastPayment: new Date().toISOString(),
-      nextPaymentDue: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      totalAttendances: 8,
-      beltHistory: []
-    }
-  ]);
-
+  // Filtrar alunos
   const filteredStudents = students.filter(student => {
     const matchesSearch = student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          student.email.toLowerCase().includes(searchTerm.toLowerCase());
@@ -58,31 +34,6 @@ export const StudentsTab: React.FC = () => {
     return matchesSearch && matchesBelt && matchesStatus;
   });
 
-  const handleAddStudent = (studentData: Partial<Student>) => {
-    const newStudent: Student = {
-      id: Date.now().toString(),
-      ...studentData as Omit<Student, 'id'>,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      totalAttendances: 0,
-      beltHistory: []
-    };
-    setStudents(prev => [...prev, newStudent]);
-    showToast('Aluno adicionado com sucesso!', 'success');
-  };
-
-  const handleUpdateStudent = (id: string, updates: Partial<Student>) => {
-    setStudents(prev => prev.map(s => 
-      s.id === id ? { ...s, ...updates, updatedAt: new Date().toISOString() } : s
-    ));
-    showToast('Aluno atualizado com sucesso!', 'success');
-  };
-
-  const handleDeleteStudent = (id: string) => {
-    setStudents(prev => prev.filter(s => s.id !== id));
-    showToast('Aluno removido', 'info');
-  };
-
   const handleEdit = (student: Student) => {
     setEditingStudent(student);
     setShowModal(true);
@@ -90,24 +41,51 @@ export const StudentsTab: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     if (confirm('Tem certeza que deseja excluir este aluno?')) {
-      handleDeleteStudent(id);
+      await deleteStudent(id);
     }
   };
 
   const handleMarkAttendance = async (studentId: string) => {
-    // Mock de presença
-    setStudents(prev => prev.map(s => 
-      s.id === studentId 
-        ? { ...s, totalAttendances: s.totalAttendances + 1 }
-        : s
-    ));
-    showToast('Presença registrada!', 'success');
+    await markAttendance(studentId);
   };
 
   const handleFormSuccess = () => {
     setShowModal(false);
     setEditingStudent(null);
   };
+
+  const handleExport = () => {
+    // Criar CSV
+    const headers = ['Nome', 'Email', 'Faixa', 'Status', 'Mensalidade', 'Presenças'];
+    const rows = filteredStudents.map(s => [
+      s.name,
+      s.email,
+      s.belt,
+      s.status === 'active' ? 'Ativo' : s.status === 'inactive' ? 'Inativo' : 'Suspenso',
+      `R$ ${s.monthlyFee.toFixed(2)}`,
+      s.totalAttendances.toString()
+    ]);
+
+    const csv = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+
+    // Download
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `alunos_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+  };
+
+  if (loading && students.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -152,7 +130,11 @@ export const StudentsTab: React.FC = () => {
           </div>
 
           <div className="flex gap-2 w-full lg:w-auto">
-            <button className="flex-1 lg:flex-none px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center justify-center gap-2">
+            <button 
+              onClick={handleExport}
+              disabled={filteredStudents.length === 0}
+              className="flex-1 lg:flex-none px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
               <Download className="w-4 h-4" />
               Exportar
             </button>
@@ -170,105 +152,133 @@ export const StudentsTab: React.FC = () => {
         </div>
       </div>
 
+      {/* Estatísticas */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white p-4 rounded-lg shadow-sm">
+          <p className="text-sm text-gray-600">Total de Alunos</p>
+          <p className="text-2xl font-bold text-gray-900">{students.length}</p>
+        </div>
+        <div className="bg-white p-4 rounded-lg shadow-sm">
+          <p className="text-sm text-gray-600">Alunos Ativos</p>
+          <p className="text-2xl font-bold text-green-600">
+            {students.filter(s => s.status === 'active').length}
+          </p>
+        </div>
+        <div className="bg-white p-4 rounded-lg shadow-sm">
+          <p className="text-sm text-gray-600">Filtrados</p>
+          <p className="text-2xl font-bold text-blue-600">{filteredStudents.length}</p>
+        </div>
+      </div>
+
       {/* Tabela de Alunos */}
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Aluno
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Faixa
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Mensalidade
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Presenças
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Ações
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredStudents.map(student => (
-                <tr key={student.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0 h-10 w-10 bg-red-100 rounded-full flex items-center justify-center">
-                        <span className="text-red-600 font-semibold">
-                          {student.name.charAt(0).toUpperCase()}
-                        </span>
-                      </div>
-                      <div className="ml-4">
-                        <div className="text-sm font-medium text-gray-900">{student.name}</div>
-                        <div className="text-sm text-gray-500">{student.email}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      student.belt === 'Branca' ? 'bg-gray-100 text-gray-800' :
-                      student.belt === 'Azul' ? 'bg-blue-100 text-blue-800' :
-                      student.belt === 'Roxa' ? 'bg-purple-100 text-purple-800' :
-                      student.belt === 'Marrom' ? 'bg-amber-100 text-amber-800' :
-                      'bg-black text-white'
-                    }`}>
-                      {student.belt}
-                    </span>
-                  </td>
-                  <td className="px-4 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      student.status === 'active' ? 'bg-green-100 text-green-800' :
-                      student.status === 'inactive' ? 'bg-gray-100 text-gray-800' :
-                      'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {student.status === 'active' ? 'Ativo' : 
-                       student.status === 'inactive' ? 'Inativo' : 'Suspenso'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
-                    R$ {student.monthlyFee.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {student.totalAttendances}
-                  </td>
-                  <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => handleMarkAttendance(student.id)}
-                        className="text-green-600 hover:text-green-900"
-                        title="Marcar presença"
-                      >
-                        <CheckCircle2 className="w-5 h-5" />
-                      </button>
-                      <button
-                        onClick={() => handleEdit(student)}
-                        className="text-blue-600 hover:text-blue-900"
-                        title="Editar"
-                      >
-                        <Edit2 className="w-5 h-5" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(student.id)}
-                        className="text-red-600 hover:text-red-900"
-                        title="Excluir"
-                      >
-                        <Trash2 className="w-5 h-5" />
-                      </button>
-                    </div>
-                  </td>
+        {filteredStudents.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-gray-500">
+              {students.length === 0 
+                ? 'Nenhum aluno cadastrado. Clique em "Novo Aluno" para começar.'
+                : 'Nenhum aluno encontrado com os filtros aplicados.'}
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Aluno
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Faixa
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Mensalidade
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Presenças
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Ações
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredStudents.map(student => (
+                  <tr key={student.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <div className="flex-shrink-0 h-10 w-10 bg-red-100 rounded-full flex items-center justify-center">
+                          <span className="text-red-600 font-semibold">
+                            {student.name.charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="ml-4">
+                          <div className="text-sm font-medium text-gray-900">{student.name}</div>
+                          <div className="text-sm text-gray-500">{student.email}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                        student.belt === 'Branca' ? 'bg-gray-100 text-gray-800' :
+                        student.belt === 'Azul' ? 'bg-blue-100 text-blue-800' :
+                        student.belt === 'Roxa' ? 'bg-purple-100 text-purple-800' :
+                        student.belt === 'Marrom' ? 'bg-amber-100 text-amber-800' :
+                        'bg-black text-white'
+                      }`}>
+                        {student.belt}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                        student.status === 'active' ? 'bg-green-100 text-green-800' :
+                        student.status === 'inactive' ? 'bg-gray-100 text-gray-800' :
+                        'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {student.status === 'active' ? 'Ativo' : 
+                         student.status === 'inactive' ? 'Inativo' : 'Suspenso'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
+                      R$ {student.monthlyFee.toFixed(2)}
+                    </td>
+                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {student.totalAttendances}
+                    </td>
+                    <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => handleMarkAttendance(student.id)}
+                          className="text-green-600 hover:text-green-900"
+                          title="Marcar presença"
+                        >
+                          <CheckCircle2 className="w-5 h-5" />
+                        </button>
+                        <button
+                          onClick={() => handleEdit(student)}
+                          className="text-blue-600 hover:text-blue-900"
+                          title="Editar"
+                        >
+                          <Edit2 className="w-5 h-5" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(student.id)}
+                          className="text-red-600 hover:text-red-900"
+                          title="Excluir"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Modal de Aluno */}

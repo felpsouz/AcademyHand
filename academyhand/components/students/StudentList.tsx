@@ -2,8 +2,8 @@
 
 import React from 'react';
 import { Student } from '@/types';
-import { StudentCard } from './StudentCard';
-import { Pagination } from '@/components/common/Pagination';
+//import { StudentCard } from './StudentCard';
+//import { Pagination } from '@/components/common/Pagination';
 
 interface StudentListProps {
   students: Student[];

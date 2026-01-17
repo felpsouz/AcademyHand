@@ -32,8 +32,44 @@ export interface BeltChange {
   notes?: string;
 }
 
+export interface Transaction {
+  id: string;
+  type: TransactionType;
+  amount: number;
+  description: string;
+  category: string;
+  paymentMethod?: PaymentMethod;
+  studentId?: string;
+  studentName?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ToastMessage {
   id: string;
   message: string;
   type: ToastType;
+}
+
+export interface Video {
+  id: string;
+  title: string;
+  description: string;
+  url: string;
+  thumbnailUrl?: string;
+  belt: BeltLevel;
+  category: string;
+  duration?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Attendance {
+  id: string;
+  studentId: string;
+  studentName: string;
+  date: string;
+  timestamp: string;
+  notes?: string;
 }

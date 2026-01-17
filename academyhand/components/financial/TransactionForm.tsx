@@ -1,16 +1,17 @@
 'use client'
 
-import React, { useState, useEffect } from 'react';
-import { Transaction, TransactionType, PaymentMethod } from '@/types';
-import { useToast } from '@/hooks/useToast';
+import React, { useState } from 'react';
+import { TransactionType, PaymentMethod } from '@/types';
+import { useTransactions } from '@/hooks/useTransactions';
+import { useStudents } from '@/hooks/useStudents';
 
 interface TransactionFormProps {
-  transaction?: Transaction | null;
   onSuccess: () => void;
 }
 
-export const TransactionForm: React.FC<TransactionFormProps> = ({ transaction, onSuccess }) => {
-  const { showToast } = useToast();
+export const TransactionForm: React.FC<TransactionFormProps> = ({ onSuccess }) => {
+  const { addTransaction } = useTransactions();
+  const { students } = useStudents();
   const [loading, setLoading] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -22,19 +23,6 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ transaction, o
     studentId: '',
   });
 
-  useEffect(() => {
-    if (transaction) {
-      setFormData({
-        type: transaction.type || 'revenue',
-        amount: transaction.amount?.toString() || '',
-        description: transaction.description || '',
-        category: transaction.category || '',
-        paymentMethod: transaction.paymentMethod || 'cash',
-        studentId: transaction.studentId || '',
-      });
-    }
-  }, [transaction]);
-
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => {
@@ -43,50 +31,62 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ transaction, o
       ...prev,
       [name]: value
     }));
+
+    // Se selecionar um aluno, preencher automaticamente
+    if (name === 'studentId' && value) {
+      const student = students.find(s => s.id === value);
+      if (student) {
+        setFormData(prev => ({
+          ...prev,
+          description: `Mensalidade - ${student.name}`,
+          amount: student.monthlyFee.toString(),
+          category: 'Mensalidade'
+        }));
+      }
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!formData.amount || parseFloat(formData.amount) <= 0) {
-      showToast('Valor deve ser maior que zero', 'error');
+      alert('Valor deve ser maior que zero');
       return;
     }
 
     if (!formData.description.trim()) {
-      showToast('Descrição é obrigatória', 'error');
+      alert('Descrição é obrigatória');
       return;
     }
 
     if (!formData.category.trim()) {
-      showToast('Categoria é obrigatória', 'error');
+      alert('Categoria é obrigatória');
       return;
     }
 
     try {
       setLoading(true);
       
-      const transactionData = {
+      const student = students.find(s => s.id === formData.studentId);
+      
+      const transactionData: any = {
         type: formData.type,
         amount: parseFloat(formData.amount),
         description: formData.description.trim(),
         category: formData.category.trim(),
         paymentMethod: formData.paymentMethod,
-        studentId: formData.studentId || undefined,
       };
 
-      // Mock save
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      showToast(
-        transaction ? 'Transação atualizada!' : 'Transação registrada!',
-        'success'
-      );
-      
+      // Adicionar campos opcionais
+      if (formData.studentId && student) {
+        transactionData.studentId = formData.studentId;
+        transactionData.studentName = student.name;
+      }
+
+      await addTransaction(transactionData);
       onSuccess();
     } catch (error) {
       console.error('Error saving transaction:', error);
-      showToast('Erro ao salvar transação', 'error');
     } finally {
       setLoading(false);
     }
@@ -113,6 +113,32 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ transaction, o
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
+          Aluno (opcional)
+        </label>
+        <select
+          name="studentId"
+          value={formData.studentId}
+          onChange={handleChange}
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
+          disabled={loading}
+        >
+          <option value="">Nenhum aluno</option>
+          {students
+            .filter(s => s.status === 'active')
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map(student => (
+              <option key={student.id} value={student.id}>
+                {student.name} - R$ {student.monthlyFee.toFixed(2)}
+              </option>
+            ))}
+        </select>
+        <p className="text-xs text-gray-500 mt-1">
+          Selecione um aluno para preencher automaticamente os dados da mensalidade
+        </p>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
           Valor (R$) *
         </label>
         <input
@@ -121,7 +147,7 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ transaction, o
           value={formData.amount}
           onChange={handleChange}
           required
-          min="0"
+          min="0.01"
           step="0.01"
           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
           placeholder="200.00"
@@ -196,7 +222,7 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ transaction, o
           disabled={loading}
           className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? 'Salvando...' : transaction ? 'Atualizar' : 'Registrar'}
+          {loading ? 'Salvando...' : 'Registrar'}
         </button>
       </div>
     </form>

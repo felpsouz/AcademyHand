@@ -77,11 +77,10 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
     try {
       setLoading(true);
       
-      const studentData = {
+      // Criar objeto base com campos obrigatórios
+      const studentData: any = {
         name: formData.name.trim(),
         email: formData.email.trim().toLowerCase(),
-        cpf: formData.cpf.trim() || undefined,
-        phone: formData.phone.trim() || undefined,
         belt: formData.belt,
         status: formData.status,
         monthlyFee,
@@ -91,6 +90,18 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
         totalAttendances: student?.totalAttendances || 0,
         beltHistory: student?.beltHistory || []
       };
+
+      // Adicionar CPF somente se tiver valor
+      if (formData.cpf.trim()) {
+        studentData.cpf = formData.cpf.trim();
+      }
+
+      // Adicionar telefone somente se tiver valor
+      if (formData.phone.trim()) {
+        studentData.phone = formData.phone.trim();
+      }
+
+      console.log('Sending student data:', studentData);
 
       if (student) {
         await updateStudent(student.id, studentData);
@@ -146,7 +157,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            CPF
+            CPF (opcional)
           </label>
           <input
             type="text"
@@ -161,7 +172,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Telefone
+            Telefone (opcional)
           </label>
           <input
             type="tel"
