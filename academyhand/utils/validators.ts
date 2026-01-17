@@ -21,3 +21,8 @@ export const validateURL = (url: string): boolean => {
     return false;
   }
 };
+
+export const validateDuration = (duration: string): boolean => {
+  const re = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+  return re.test(duration);
+};

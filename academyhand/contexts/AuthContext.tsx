@@ -1,103 +1,106 @@
 'use client'
 
-import React, { createContext, useContext, useState, ReactNode } from 'react';
-import { ViewMode } from '@/types';
+import { createContext, useContext, useEffect, useState } from 'react';
+import { User } from 'firebase/auth';
+import { 
+  signInWithEmailAndPassword, 
+  signOut as firebaseSignOut,
+  onAuthStateChanged 
+} from 'firebase/auth';
+import { auth } from '@/services/firebase/config';
+import { getUserData } from '@/services/firebase/firestore';
+import { useToast } from '@/hooks/useToast';
+
+interface UserData {
+  email: string;
+  name: string;
+  role: 0 | 1; // 0 = admin, 1 = student
+  studentId?: string;
+}
 
 interface AuthContextType {
-  user: any;
-  isAdmin: boolean;
-  currentStudent: any;
-  activeView: ViewMode;
-  isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
-  setActiveView: (view: ViewMode) => void;
-  setCurrentStudent: (student: any) => void;
+  user: User | null;
+  userData: UserData | null;
+  loading: boolean;
+  signIn: (email: string, password: string) => Promise<void>;
+  signOut: () => Promise<void>;
 }
 
-export const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-};
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [userData, setUserData] = useState<UserData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const { showToast } = useToast();
 
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const [user, setUser] = useState<any>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [currentStudent, setCurrentStudent] = useState<any>(null);
-  const [activeView, setActiveView] = useState<ViewMode>('login');
-  const [isLoading, setIsLoading] = useState(false);
-
-  const login = async (email: string, password: string) => {
-    setIsLoading(true);
-    try {
-      console.log('Login attempt:', { email, password });
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setUser(user);
       
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      if (email === 'admin@imperio.com' && password === 'admin123') {
-        setIsAdmin(true);
-        setActiveView('admin');
+      if (user) {
+        try {
+          const data = await getUserData(user.uid);
+          setUserData(data);
+        } catch (error) {
+          console.error('Error fetching user data:', error);
+          setUserData(null);
+        }
       } else {
-        const mockStudent = {
-          id: '1',
-          name: 'Aluno Demo',
-          email: email,
-          belt: 'Branca',
-          status: 'active',
-          paymentStatus: 'paid',
-          monthlyFee: 200,
-          lastPayment: new Date().toISOString(),
-          nextPaymentDue: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          totalAttendances: 12,
-          beltHistory: []
-        };
-        setCurrentStudent(mockStudent);
-        setIsAdmin(false);
-        setActiveView('student');
+        setUserData(null);
       }
       
-      setUser({ email });
-    } catch (error) {
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const signIn = async (email: string, password: string) => {
+    try {
+      console.log('Login attempt:', { email });
+      await signInWithEmailAndPassword(auth, email, password);
+      showToast('Login realizado com sucesso!', 'success');
+    } catch (error: any) {
       console.error('Login error:', error);
+      let message = 'Erro ao fazer login';
+      
+      if (error.code === 'auth/invalid-credential') {
+        message = 'Email ou senha incorretos';
+      } else if (error.code === 'auth/user-not-found') {
+        message = 'Usuário não encontrado';
+      } else if (error.code === 'auth/wrong-password') {
+        message = 'Senha incorreta';
+      }
+      
+      showToast(message, 'error');
       throw error;
-    } finally {
-      setIsLoading(false);
     }
   };
 
-  const logout = () => {
-    setUser(null);
-    setIsAdmin(false);
-    setCurrentStudent(null);
-    setActiveView('login');
-  };
-
-  const value = {
-    user,
-    isAdmin,
-    currentStudent,
-    activeView,
-    isLoading,
-    login,
-    logout,
-    setActiveView,
-    setCurrentStudent
+  const signOut = async () => {
+    try {
+      await firebaseSignOut(auth);
+      setUserData(null);
+      showToast('Logout realizado com sucesso!', 'success');
+    } catch (error) {
+      console.error('Logout error:', error);
+      showToast('Erro ao fazer logout', 'error');
+      throw error;
+    }
   };
 
   return (
-    <AuthContext.Provider value={value}>
+    <AuthContext.Provider value={{ user, userData, loading, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );
-};
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+}
