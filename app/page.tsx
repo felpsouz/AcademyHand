@@ -1,40 +1,30 @@
-'use client';
-
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
-import { useAuth } from '@/contexts/AuthContext';
-import { LoginView } from '@/components/auth/LoginView';
-import { AdminView } from '@/components/admin/AdminView';
-import { StudentView } from '@/components/student/StudentView';
-import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import type { Metadata } from "next";
+import "./globals.css";
+import { ToastProvider } from "@/contexts/ToastContext";
+import { AuthProvider } from "@/contexts/AuthContext";
 
-export default function Home() {
-  const { user, userData, loading, signOut } = useAuth();
+export const metadata: Metadata = {
+  title: "AcademyHand",
+  description: "Sistema de gestão para academias de handebol",
+};
 
-  const handleLogout = async () => {
-    try {
-      await signOut();
-    } catch (error) {
-      console.error('Erro ao fazer logout:', error);
-    }
-  };
-
-  if (loading) {
-    return <LoadingSpinner />;
-  }
-
-  if (!user || !userData) {
-    return <LoginView />;
-  }
-
-  // 0 = admin, 1 = student
-  if (userData.role === 0) {
-    return <AdminView onLogout={handleLogout} />;
-  }
-
-  if (userData.role === 1) {
-    return <StudentView onLogout={handleLogout} />;
-  }
-
-  return <LoginView />;
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="pt-BR" suppressHydrationWarning>
+      <body suppressHydrationWarning>
+        <ToastProvider>
+          <AuthProvider>
+            {children}
+          </AuthProvider>
+        </ToastProvider>
+      </body>
+    </html>
+  );
 }
