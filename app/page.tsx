@@ -30,7 +30,8 @@ export default function Home() {
   }
 
   if (userData.role === 1) {
-    return <StudentView onLogout={handleLogout} />;
+    // CORREÇÃO: Passar o userId do user.uid
+    return <StudentView userId={user.uid} onLogout={handleLogout} />;
   }
 
   return <LoginView />;
