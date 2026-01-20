@@ -95,10 +95,6 @@ export const useStudents = () => {
         }]
       };
 
-      if (studentData.cpf?.trim()) {
-        newStudentData.cpf = studentData.cpf.trim();
-      }
-      
       if (studentData.phone?.trim()) {
         newStudentData.phone = studentData.phone.trim();
       }
