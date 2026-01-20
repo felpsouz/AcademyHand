@@ -11,7 +11,6 @@ export interface Student {
   id: string;
   name: string;
   email: string;
-  cpf?: string;
   phone?: string;
   belt: BeltLevel;
   status: StudentStatus;

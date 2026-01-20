@@ -12,6 +12,13 @@ export const useStudents = () => {
   const [error, setError] = useState<string | null>(null);
   const { showToast } = useToast();
 
+  // Função helper para atualizar dashboard
+  const refreshDashboard = () => {
+    if (typeof window !== 'undefined' && (window as any).refreshDashboard) {
+      (window as any).refreshDashboard();
+    }
+  };
+
   // Carregar alunos
   const loadStudents = useCallback(async () => {
     try {
@@ -68,7 +75,6 @@ export const useStudents = () => {
 
       const now = new Date().toISOString();
       
-      // Criar objeto base (sem valores undefined)
       const newStudentData: any = {
         name: studentData.name.trim(),
         email: studentData.email.toLowerCase().trim(),
@@ -89,7 +95,6 @@ export const useStudents = () => {
         }]
       };
 
-      // Adicionar campos opcionais SOMENTE se tiverem valor
       if (studentData.cpf?.trim()) {
         newStudentData.cpf = studentData.cpf.trim();
       }
@@ -100,8 +105,10 @@ export const useStudents = () => {
 
       const newStudent = await firestoreService.addDocument<Student>('students', newStudentData);
       
-      // ✅ ATUALIZAR ESTADO LOCAL IMEDIATAMENTE
       setStudents(prev => [...prev, newStudent].sort((a, b) => a.name.localeCompare(b.name)));
+      
+      // ✅ Atualizar dashboard
+      refreshDashboard();
       
       showToast('Aluno cadastrado com sucesso!', 'success');
       return newStudent;
@@ -135,12 +142,10 @@ export const useStudents = () => {
         throw new Error('Aluno não encontrado');
       }
 
-      // Criar objeto de atualização sem valores undefined
       const updatedData: any = {
         updatedAt: new Date().toISOString()
       };
 
-      // Adicionar campos que têm valor
       Object.keys(updates).forEach(key => {
         const value = (updates as any)[key];
         if (value !== undefined) {
@@ -154,7 +159,6 @@ export const useStudents = () => {
         }
       });
 
-      // Se mudou a faixa, atualizar histórico
       if (updates.belt && updates.belt !== student.belt) {
         updatedData.beltHistory = [
           ...student.beltHistory,
@@ -169,10 +173,12 @@ export const useStudents = () => {
 
       await firestoreService.updateDocument('students', id, updatedData);
       
-      // ✅ ATUALIZAR ESTADO LOCAL IMEDIATAMENTE
       setStudents(prev => prev.map(s => 
         s.id === id ? { ...s, ...updatedData } : s
       ).sort((a, b) => a.name.localeCompare(b.name)));
+      
+      // ✅ Atualizar dashboard
+      refreshDashboard();
       
       showToast('Aluno atualizado com sucesso!', 'success');
     } catch (err: any) {
@@ -186,16 +192,32 @@ export const useStudents = () => {
     }
   }, [students, showToast]);
 
-  // Excluir aluno
+  // ✅ Excluir aluno - CORRIGIDO para deletar de users E students
   const deleteStudent = useCallback(async (id: string) => {
     try {
       setLoading(true);
       setError(null);
       
-      await firestoreService.deleteDocument('students', id);
+      // 1. Deletar de USERS (para remover login)
+      try {
+        await firestoreService.deleteDocument('users', id);
+        console.log('✅ User document deleted:', id);
+      } catch (error) {
+        console.warn('User document not found or already deleted:', id);
+      }
       
-      // ✅ ATUALIZAR ESTADO LOCAL IMEDIATAMENTE
+      // 2. Deletar de STUDENTS (dados do aluno)
+      await firestoreService.deleteDocument('students', id);
+      console.log('✅ Student document deleted:', id);
+      
+      // NOTA: Não é possível deletar do Firebase Auth pelo client-side
+      // O usuário ainda existirá no Authentication, mas sem dados no Firestore
+      // Para deletar completamente, seria necessário Firebase Admin SDK no backend
+      
       setStudents(prev => prev.filter(s => s.id !== id));
+      
+      // ✅ Atualizar dashboard
+      refreshDashboard();
       
       showToast('Aluno removido com sucesso', 'info');
     } catch (err: any) {
@@ -227,7 +249,6 @@ export const useStudents = () => {
         throw new Error('Horário inválido para registro (6h-23h)');
       }
 
-      // Registrar presença
       const attendanceData = {
         studentId,
         studentName: student.name,
@@ -238,7 +259,6 @@ export const useStudents = () => {
 
       await firestoreService.addDocument('attendances', attendanceData);
 
-      // Atualizar contador do aluno
       const newTotal = student.totalAttendances + 1;
       const updatedAt = now.toISOString();
 
@@ -247,10 +267,12 @@ export const useStudents = () => {
         updatedAt: updatedAt
       });
 
-      // ✅ ATUALIZAR ESTADO LOCAL IMEDIATAMENTE
       setStudents(prev => prev.map(s => 
         s.id === studentId ? { ...s, totalAttendances: newTotal, updatedAt } : s
       ));
+
+      // ✅ Atualizar dashboard
+      refreshDashboard();
 
       showToast('Presença confirmada!', 'success');
     } catch (err: any) {
@@ -263,29 +285,24 @@ export const useStudents = () => {
     }
   }, [students, showToast]);
 
-  // Buscar aluno por ID
   const getStudentById = useCallback((id: string): Student | undefined => {
     return students.find(s => s.id === id);
   }, [students]);
 
-  // Filtrar alunos por status
   const getStudentsByStatus = useCallback((status: StudentStatus): Student[] => {
     return students.filter(s => s.status === status);
   }, [students]);
 
-  // Filtrar alunos por faixa
   const getStudentsByBelt = useCallback((belt: BeltLevel): Student[] => {
     return students.filter(s => s.belt === belt);
   }, [students]);
 
-  // Calcular próxima data de pagamento
   const calculateNextPaymentDue = (lastPayment: string): string => {
     const date = new Date(lastPayment);
     date.setMonth(date.getMonth() + 1);
     return date.toISOString();
   };
 
-  // Carregar dados inicialmente
   useEffect(() => {
     loadStudents();
   }, [loadStudents]);
