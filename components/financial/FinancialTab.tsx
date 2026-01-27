@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState } from 'react';
-import { TrendingUp, TrendingDown, BarChart3, Plus } from 'lucide-react';
+import { TrendingUp, TrendingDown, BarChart3, Plus, Receipt } from 'lucide-react';
 import { TransactionForm } from './TransactionForm';
 import { TransactionList } from './TransactionList';
 import { Modal } from '@/components/common/Modal';
@@ -9,11 +9,15 @@ import { useTransactions } from '@/hooks/useTransactions';
 import { useStudents } from '@/hooks/useStudents';
 import { formatCurrency } from '@/utils/formatters';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { InvoicesTab } from '@/components/invoices/InvoicesTab';
+
+type FinancialSubTab = 'transactions' | 'invoices';
 
 export const FinancialTab: React.FC = () => {
   const { transactions, loading: loadingTransactions, getMonthlyStats } = useTransactions();
   const { students, loading: loadingStudents } = useStudents();
   const [showModal, setShowModal] = useState(false);
+  const [activeSubTab, setActiveSubTab] = useState<FinancialSubTab>('transactions');
 
   const stats = getMonthlyStats();
 
@@ -95,27 +99,65 @@ export const FinancialTab: React.FC = () => {
         </div>
       </div>
 
-      {/* Ações */}
-      <div className="flex justify-end">
-        <button 
-          onClick={() => setShowModal(true)}
-          className="w-full sm:w-auto px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          Nova Transação
-        </button>
-      </div>
-
-      {/* Lista de Transações */}
-      {transactions.length === 0 ? (
-        <div className="bg-white rounded-lg shadow-sm p-8 sm:p-12 text-center">
-          <p className="text-sm sm:text-base text-gray-500">
-            Nenhuma transação registrada. Clique em "Nova Transação" para começar.
-          </p>
+      {/* Abas Internas: Transações e Faturas */}
+      <div className="bg-white rounded-lg shadow-sm">
+        <div className="border-b border-gray-200">
+          <nav className="flex -mb-px">
+            <button
+              onClick={() => setActiveSubTab('transactions')}
+              className={`px-6 py-3 text-sm font-medium transition-colors ${
+                activeSubTab === 'transactions'
+                  ? 'border-b-2 border-red-600 text-red-600'
+                  : 'text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <BarChart3 className="w-4 h-4 inline mr-2" />
+              Transações
+            </button>
+            <button
+              onClick={() => setActiveSubTab('invoices')}
+              className={`px-6 py-3 text-sm font-medium transition-colors ${
+                activeSubTab === 'invoices'
+                  ? 'border-b-2 border-red-600 text-red-600'
+                  : 'text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Receipt className="w-4 h-4 inline mr-2" />
+              Faturas
+            </button>
+          </nav>
         </div>
-      ) : (
-        <TransactionList transactions={transactions} />
-      )}
+
+        <div className="p-6">
+          {activeSubTab === 'transactions' ? (
+            <div className="space-y-4">
+              {/* Ações */}
+              <div className="flex justify-end">
+                <button 
+                  onClick={() => setShowModal(true)}
+                  className="w-full sm:w-auto px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  Nova Transação
+                </button>
+              </div>
+
+              {/* Lista de Transações */}
+              {transactions.length === 0 ? (
+                <div className="bg-gray-50 rounded-lg p-8 sm:p-12 text-center">
+                  <p className="text-sm sm:text-base text-gray-500">
+                    Nenhuma transação registrada. Clique em "Nova Transação" para começar.
+                  </p>
+                </div>
+              ) : (
+                <TransactionList transactions={transactions} />
+              )}
+            </div>
+          ) : (
+            <InvoicesTab />
+          )}
+        </div>
+      </div>
 
       {/* Modal de Transação */}
       <Modal

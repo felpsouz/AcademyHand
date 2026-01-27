@@ -6,6 +6,46 @@ export type PaymentMethod = 'cash' | 'credit' | 'debit' | 'pix' | 'transfer';
 export type ToastType = 'success' | 'error' | 'warning' | 'info';
 export type ViewMode = 'login' | 'student' | 'admin';
 export type TabType = 'dashboard' | 'students' | 'videos' | 'financial';
+export type InvoiceStatus = 'paid' | 'pending' | 'overdue';
+export type InvoicePaymentMethod = 'pix' | 'credit_card' | 'debit_card' | 'cash';
+
+export interface Invoice {
+  id: string;
+  studentId: string;
+  studentName: string;
+  month: string; // '01' a '12'
+  year: number;
+  amount: number;
+  dueDate: string; // formato: 'DD/MM/YYYY'
+  status: InvoiceStatus;
+  paidAt?: string; // formato: 'DD/MM/YYYY'
+  paymentMethod?: InvoicePaymentMethod;
+  description?: string;
+  pixKey?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateInvoiceData {
+  studentId: string;
+  studentName: string;
+  month: string;
+  year: number;
+  amount: number;
+  dueDate: string;
+  description?: string;
+  pixKey?: string;
+}
+
+export interface UpdateInvoiceData {
+  status?: InvoiceStatus;
+  paidAt?: string;
+  paymentMethod?: InvoicePaymentMethod;
+  amount?: number;
+  dueDate?: string;
+  description?: string;
+  pixKey?: string;
+}
 
 export interface Student {
   id: string;
