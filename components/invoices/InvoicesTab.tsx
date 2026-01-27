@@ -1,4 +1,4 @@
-// components/invoices/InvoicesTab.tsx
+// components/invoices/InvoicesTab.tsx - VERSÃO CORRIGIDA
 
 'use client'
 
@@ -10,7 +10,7 @@ import { InvoiceList } from './InvoiceList';
 import { InvoiceForm } from './InvoiceForm';
 import { GenerateInvoicesModal } from './GenerateInvoicesModal';
 import { Button } from '@/components/common/Button';
-import type { InvoiceStatus, Invoice } from '@/types';
+import type { InvoiceStatus, Invoice, CreateInvoiceData, UpdateInvoiceData } from '@/types';
 
 export const InvoicesTab: React.FC = () => {
   const { students } = useStudents();
@@ -42,6 +42,19 @@ export const InvoicesTab: React.FC = () => {
     const inactive = 'bg-gray-100 text-gray-700 hover:bg-gray-200';
     
     return statusFilter === status ? `${base} ${active}` : `${base} ${inactive}`;
+  };
+
+  // Handlers com tipos corretos
+  const handleAddInvoice = async (data: CreateInvoiceData | UpdateInvoiceData) => {
+    await addInvoice(data as CreateInvoiceData);
+    setIsFormOpen(false);
+  };
+
+  const handleEditInvoice = async (data: CreateInvoiceData | UpdateInvoiceData) => {
+    if (editingInvoice) {
+      await updateInvoice(editingInvoice.id, data as UpdateInvoiceData);
+      setEditingInvoice(null);
+    }
   };
 
   if (loading && invoices.length === 0) {
@@ -166,10 +179,7 @@ export const InvoicesTab: React.FC = () => {
         <InvoiceForm
           students={students}
           onClose={() => setIsFormOpen(false)}
-          onSubmit={async (data) => {
-            await addInvoice(data);
-            setIsFormOpen(false);
-          }}
+          onSubmit={handleAddInvoice}
         />
       )}
 
@@ -179,10 +189,7 @@ export const InvoicesTab: React.FC = () => {
           students={students}
           invoice={editingInvoice}
           onClose={() => setEditingInvoice(null)}
-          onSubmit={async (data) => {
-            await updateInvoice(editingInvoice.id, data);
-            setEditingInvoice(null);
-          }}
+          onSubmit={handleEditInvoice}
         />
       )}
 
