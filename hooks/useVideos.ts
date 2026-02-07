@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Video, BeltLevel } from '@/types';
+import { Video } from '@/types';
 import { videoService } from '@/services/firebase/videos';
 
-export const useVideos = (belt?: BeltLevel) => {
+export const useVideos = () => {
   const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -12,9 +12,7 @@ export const useVideos = (belt?: BeltLevel) => {
       setLoading(true);
       setError(null);
 
-      const data = belt
-        ? await videoService.getVideosByBelt(belt)
-        : await videoService.getAllVideos();
+      const data = await videoService.getAllVideos();
 
       setVideos(data);
     } catch (err) {
@@ -27,7 +25,7 @@ export const useVideos = (belt?: BeltLevel) => {
 
   useEffect(() => {
     fetchVideos();
-  }, [belt]);
+  }, []);
 
   const normalizeVideo = (
     videoData: Omit<Video, 'id' | 'createdAt' | 'updatedAt'>

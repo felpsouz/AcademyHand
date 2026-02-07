@@ -1,7 +1,7 @@
 'use client'
 
-import React, { useState } from 'react';
-import { Video, BeltLevel } from '@/types';
+import React from 'react';
+import { Video } from '@/types';
 import { Clock, PlayCircle, Edit2, Trash2 } from 'lucide-react';
 
 interface VideoListProps {
@@ -17,23 +17,6 @@ export const VideoList: React.FC<VideoListProps> = ({
   onDelete,
   onPlay
 }) => {
-  const [filterLevel, setFilterLevel] = useState<BeltLevel | 'all'>('all');
-
-  const filteredVideos = filterLevel === 'all' 
-    ? videos 
-    : videos.filter(video => video.belt === filterLevel);
-
-  const getBeltColor = (belt: BeltLevel): string => {
-    const colors = {
-      'Branca': 'bg-gray-100 text-gray-800',
-      'Azul': 'bg-blue-100 text-blue-800',
-      'Roxa': 'bg-purple-100 text-purple-800',
-      'Marrom': 'bg-amber-100 text-amber-800',
-      'Preta': 'bg-black text-white'
-    };
-    return colors[belt];
-  };
-
   const formatDuration = (seconds?: number): string => {
     if (!seconds) return '00:00';
     const mins = Math.floor(seconds / 60);
@@ -51,34 +34,13 @@ export const VideoList: React.FC<VideoListProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Filtro */}
-      <div className="flex justify-between items-center">
-        <div className="flex gap-2">
-          <select
-            value={filterLevel}
-            onChange={(e) => setFilterLevel(e.target.value as BeltLevel | 'all')}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
-          >
-            <option value="all">Todas as Faixas</option>
-            <option value="Branca">Branca</option>
-            <option value="Azul">Azul</option>
-            <option value="Roxa">Roxa</option>
-            <option value="Marrom">Marrom</option>
-            <option value="Preta">Preta</option>
-          </select>
-        </div>
-      </div>
-
       {/* Grid de Vídeos */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredVideos.map(video => (
+        {videos.map(video => (
           <div key={video.id} className="bg-white rounded-lg shadow-sm overflow-hidden border border-gray-200">
             <div className="p-6">
               <div className="flex items-start justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">{video.title}</h3>
-                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getBeltColor(video.belt)}`}>
-                  {video.belt}
-                </span>
               </div>
               
               <p className="text-gray-600 text-sm mb-4 line-clamp-2">

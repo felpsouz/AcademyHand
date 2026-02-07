@@ -1,4 +1,4 @@
-// components/student/StudentView.tsx - VERSÃO FINAL CORRIGIDA
+// components/student/StudentView.tsx - VERSÃO CORRIGIDA - VÍDEOS PARA TODOS
 
 'use client'
 
@@ -19,7 +19,7 @@ interface StudentViewProps {
 interface StudentData {
   name: string;
   email: string;
-  belt: string; // ✅ CORRIGIDO: era beltLevel
+  belt: string;
   status: string;
   monthlyFee: number;
   dueDate: number;
@@ -47,7 +47,6 @@ interface AttendanceRecord {
 interface VideoData {
   id: string;
   title: string;
-  belt: string;
   duration: string;
   url: string;
   description?: string;
@@ -71,13 +70,8 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
     loadStudentData();
     loadInvoices();
     loadAttendance();
+    loadVideos(); // ✅ Carrega vídeos junto com os outros dados
   }, [userId]);
-
-  useEffect(() => {
-    if (studentData?.belt) { // ✅ CORRIGIDO: era beltLevel
-      loadVideos();
-    }
-  }, [studentData?.belt]); // ✅ CORRIGIDO: era beltLevel
 
   const loadStudentData = async () => {
     if (!userId) return;
@@ -144,15 +138,13 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
   };
 
   const loadVideos = async () => {
-    if (!studentData?.belt) return; // ✅ CORRIGIDO: era beltLevel
-    
     try {
-      console.log('🔍 Buscando vídeos para faixa:', studentData.belt); // ✅ CORRIGIDO
+      console.log('🔍 Buscando todos os vídeos');
       
       const videosRef = collection(db, 'videos');
+      // ✅ REMOVIDO O FILTRO POR FAIXA - busca todos os vídeos
       const q = query(
         videosRef,
-        where('belt', '==', studentData.belt), // ✅ CORRIGIDO: era beltLevel
         orderBy('createdAt', 'desc')
       );
       const snapshot = await getDocs(q);
@@ -164,7 +156,6 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
         return {
           id: doc.id,
           title: data.title,
-          belt: data.belt,
           duration: data.duration 
             ? `${Math.floor(data.duration / 60)}:${(data.duration % 60).toString().padStart(2, '0')}` 
             : '00:00',
@@ -292,7 +283,7 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
             </div>
             <div>
               <h1 className="text-xl font-bold text-gray-900">{studentData.name}</h1>
-              <p className="text-sm text-gray-600">Faixa {studentData.belt}</p> {/* ✅ CORRIGIDO */}
+              <p className="text-sm text-gray-600">Faixa {studentData.belt}</p>
             </div>
           </div>
           
@@ -569,27 +560,24 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
             <div className="flex items-center gap-2 mb-6">
               <Video className="w-6 h-6 text-red-600" />
               <h2 className="text-xl font-bold text-gray-900">
-                Vídeos - Faixa {studentData.belt} {}
+                Vídeos Disponíveis
               </h2>
             </div>
 
             {videos.length === 0 ? (
               <div className="text-center py-12">
                 <Video className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500 mb-2">Nenhum vídeo disponível para sua faixa</p>
+                <p className="text-gray-500 mb-2">Nenhum vídeo disponível</p>
                 <p className="text-sm text-gray-400">
-                  Os vídeos para faixa {studentData.belt} serão adicionados em breve {/* ✅ CORRIGIDO */}
+                  Os vídeos serão adicionados em breve
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {videos.map(video => (
                   <div key={video.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
                     <div className="flex items-start justify-between mb-2">
                       <h3 className="font-semibold text-gray-900 flex-1">{video.title}</h3>
-                      <span className="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded-full ml-2">
-                        {video.belt}
-                      </span>
                     </div>
                     
                     {video.description && (

@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react';
-import { Video, BeltLevel } from '@/types';
+import { Video } from '@/types';
 import { useToast } from '@/hooks/useToast';
 import { validateURL } from '@/utils/validators';
 import { videoService } from '@/services/firebase/videos';
@@ -19,7 +19,6 @@ export const VideoForm: React.FC<VideoFormProps> = ({ video, onSuccess }) => {
     title: '',
     description: '',
     url: '',
-    belt: 'Branca' as BeltLevel,
     duration: 0,
   });
 
@@ -29,7 +28,6 @@ export const VideoForm: React.FC<VideoFormProps> = ({ video, onSuccess }) => {
         title: video.title || '',
         description: video.description || '',
         url: video.url || '',
-        belt: video.belt || 'Branca',
         duration: video.duration || 0,
       });
     }
@@ -134,41 +132,19 @@ export const VideoForm: React.FC<VideoFormProps> = ({ video, onSuccess }) => {
         />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Nível *
-          </label>
-          <select
-            name="belt"
-            value={formData.belt}
-            onChange={handleChange}
-            required
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
-            disabled={loading}
-          >
-            <option value="Branca">Branca</option>
-            <option value="Azul">Azul</option>
-            <option value="Roxa">Roxa</option>
-            <option value="Marrom">Marrom</option>
-            <option value="Preta">Preta</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Duração (segundos)
-          </label>
-          <input
-            type="number"
-            name="duration"
-            value={formData.duration}
-            onChange={handleChange}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
-            placeholder="0"
-            disabled={loading}
-          />
-        </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Duração (segundos)
+        </label>
+        <input
+          type="number"
+          name="duration"
+          value={formData.duration}
+          onChange={handleChange}
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
+          placeholder="0"
+          disabled={loading}
+        />
       </div>
 
       <div className="flex gap-3 pt-4">

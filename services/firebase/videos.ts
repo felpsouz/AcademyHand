@@ -7,11 +7,10 @@ import {
   getDocs,
   query,
   orderBy,
-  where,
   serverTimestamp 
 } from 'firebase/firestore';
 import { db } from './config';
-import { Video, BeltLevel } from '@/types';
+import { Video } from '@/types';
 
 export const videoService = {
   // Criar novo vídeo
@@ -19,7 +18,6 @@ export const videoService = {
     title: string;
     description: string;
     url: string;
-    belt: BeltLevel;
     duration: number;
   }): Promise<string> {
     try {
@@ -43,7 +41,6 @@ export const videoService = {
     title: string;
     description: string;
     url: string;
-    belt: BeltLevel;
     duration: number;
   }): Promise<void> {
     try {
@@ -85,29 +82,6 @@ export const videoService = {
       })) as Video[];
     } catch (error) {
       console.error('Error getting videos:', error);
-      throw error;
-    }
-  },
-
-  // Buscar vídeos por faixa
-  async getVideosByBelt(belt: BeltLevel): Promise<Video[]> {
-    try {
-      const videosRef = collection(db, 'videos');
-      const q = query(
-        videosRef, 
-        where('belt', '==', belt),
-        orderBy('createdAt', 'desc')
-      );
-      const snapshot = await getDocs(q);
-      
-      return snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate(),
-        updatedAt: doc.data().updatedAt?.toDate(),
-      })) as Video[];
-    } catch (error) {
-      console.error('Error getting videos by belt:', error);
       throw error;
     }
   }
