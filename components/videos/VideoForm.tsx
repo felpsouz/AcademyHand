@@ -19,7 +19,6 @@ export const VideoForm: React.FC<VideoFormProps> = ({ video, onSuccess }) => {
     title: '',
     description: '',
     url: '',
-    duration: 0,
   });
 
   useEffect(() => {
@@ -28,18 +27,17 @@ export const VideoForm: React.FC<VideoFormProps> = ({ video, onSuccess }) => {
         title: video.title || '',
         description: video.description || '',
         url: video.url || '',
-        duration: video.duration || 0,
       });
     }
   }, [video]);
 
   const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: name === 'duration' ? Number(value) : value
+      [name]: value
     }));
   };
 
@@ -64,13 +62,18 @@ export const VideoForm: React.FC<VideoFormProps> = ({ video, onSuccess }) => {
     try {
       setLoading(true);
       
+      const videoData = {
+        ...formData,
+        duration: 0, // Valor padrão para manter compatibilidade
+      };
+      
       if (video?.id) {
         // Atualizar vídeo existente
-        await videoService.updateVideo(video.id, formData);
+        await videoService.updateVideo(video.id, videoData);
         showToast('Vídeo atualizado com sucesso!', 'success');
       } else {
         // Criar novo vídeo
-        await videoService.createVideo(formData);
+        await videoService.createVideo(videoData);
         showToast('Vídeo adicionado com sucesso!', 'success');
       }
       
@@ -128,21 +131,6 @@ export const VideoForm: React.FC<VideoFormProps> = ({ video, onSuccess }) => {
           required
           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
           placeholder="https://youtube.com/watch?v=..."
-          disabled={loading}
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Duração (segundos)
-        </label>
-        <input
-          type="number"
-          name="duration"
-          value={formData.duration}
-          onChange={handleChange}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
-          placeholder="0"
           disabled={loading}
         />
       </div>
