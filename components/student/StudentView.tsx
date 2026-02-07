@@ -1,4 +1,4 @@
-// components/student/StudentView.tsx - VERSÃO ATUALIZADA COM FATURAS
+// components/student/StudentView.tsx - VERSÃO FINAL CORRIGIDA
 
 'use client'
 
@@ -19,7 +19,7 @@ interface StudentViewProps {
 interface StudentData {
   name: string;
   email: string;
-  beltLevel: string;
+  belt: string; // ✅ CORRIGIDO: era beltLevel
   status: string;
   monthlyFee: number;
   dueDate: number;
@@ -44,19 +44,20 @@ interface AttendanceRecord {
   confirmed: boolean;
 }
 
-interface Video {
+interface VideoData {
   id: string;
   title: string;
-  level: string;
+  belt: string;
   duration: string;
   url: string;
+  description?: string;
 }
 
 export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) => {
   const [studentData, setStudentData] = useState<StudentData | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
-  const [videos, setVideos] = useState<Video[]>([]);
+  const [videos, setVideos] = useState<VideoData[]>([]);
   const [loading, setLoading] = useState(true);
   const [confirmingAttendance, setConfirmingAttendance] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'invoices' | 'attendance' | 'videos'>('overview');
@@ -73,10 +74,10 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
   }, [userId]);
 
   useEffect(() => {
-    if (studentData?.beltLevel) {
+    if (studentData?.belt) { // ✅ CORRIGIDO: era beltLevel
       loadVideos();
     }
-  }, [studentData?.beltLevel]);
+  }, [studentData?.belt]); // ✅ CORRIGIDO: era beltLevel
 
   const loadStudentData = async () => {
     if (!userId) return;
@@ -85,6 +86,7 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
       const studentDoc = await getDoc(doc(db, 'students', userId));
       if (studentDoc.exists()) {
         const data = studentDoc.data() as StudentData;
+        console.log('📋 Dados do aluno carregados:', data);
         setStudentData(data);
       } else {
         console.error('Documento do aluno não encontrado');
@@ -142,22 +144,39 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
   };
 
   const loadVideos = async () => {
-    if (!studentData?.beltLevel) return;
+    if (!studentData?.belt) return; // ✅ CORRIGIDO: era beltLevel
     
     try {
+      console.log('🔍 Buscando vídeos para faixa:', studentData.belt); // ✅ CORRIGIDO
+      
       const videosRef = collection(db, 'videos');
       const q = query(
         videosRef,
-        where('level', '==', studentData.beltLevel)
+        where('belt', '==', studentData.belt), // ✅ CORRIGIDO: era beltLevel
+        orderBy('createdAt', 'desc')
       );
       const snapshot = await getDocs(q);
-      const videosData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Video[];
+      
+      console.log('📊 Total de vídeos encontrados:', snapshot.size);
+      
+      const videosData = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          title: data.title,
+          belt: data.belt,
+          duration: data.duration 
+            ? `${Math.floor(data.duration / 60)}:${(data.duration % 60).toString().padStart(2, '0')}` 
+            : '00:00',
+          url: data.url,
+          description: data.description || '',
+        };
+      }) as VideoData[];
+      
+      console.log('✅ Vídeos carregados:', videosData);
       setVideos(videosData);
     } catch (error) {
-      console.error('Erro ao carregar vídeos:', error);
+      console.error('❌ Erro ao carregar vídeos:', error);
     }
   };
 
@@ -273,7 +292,7 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
             </div>
             <div>
               <h1 className="text-xl font-bold text-gray-900">{studentData.name}</h1>
-              <p className="text-sm text-gray-600">Faixa {studentData.beltLevel}</p>
+              <p className="text-sm text-gray-600">Faixa {studentData.belt}</p> {/* ✅ CORRIGIDO */}
             </div>
           </div>
           
@@ -545,40 +564,57 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
           </div>
         )}
 
-        {activeTab === 'videos' && videos.length > 0 && (
+        {activeTab === 'videos' && (
           <div className="bg-white rounded-lg shadow-sm p-6">
             <div className="flex items-center gap-2 mb-6">
               <Video className="w-6 h-6 text-red-600" />
               <h2 className="text-xl font-bold text-gray-900">
-                Vídeos - Faixa {studentData.beltLevel}
+                Vídeos - Faixa {studentData.belt} {}
               </h2>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {videos.map(video => (
-                <div key={video.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                  <div className="flex items-start justify-between mb-2">
-                    <h3 className="font-semibold text-gray-900">{video.title}</h3>
-                    <span className="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded-full">
-                      {video.level}
-                    </span>
+            {videos.length === 0 ? (
+              <div className="text-center py-12">
+                <Video className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <p className="text-gray-500 mb-2">Nenhum vídeo disponível para sua faixa</p>
+                <p className="text-sm text-gray-400">
+                  Os vídeos para faixa {studentData.belt} serão adicionados em breve {/* ✅ CORRIGIDO */}
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {videos.map(video => (
+                  <div key={video.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                    <div className="flex items-start justify-between mb-2">
+                      <h3 className="font-semibold text-gray-900 flex-1">{video.title}</h3>
+                      <span className="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded-full ml-2">
+                        {video.belt}
+                      </span>
+                    </div>
+                    
+                    {video.description && (
+                      <p className="text-sm text-gray-600 mb-3 line-clamp-2">
+                        {video.description}
+                      </p>
+                    )}
+                    
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-500 flex items-center gap-1">
+                        <Clock className="w-4 h-4" />
+                        {video.duration}
+                      </span>
+                      <button 
+                        onClick={() => window.open(video.url, '_blank')}
+                        className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors flex items-center gap-1"
+                      >
+                        <PlayCircle className="w-4 h-4" />
+                        Assistir
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500 flex items-center gap-1">
-                      <Clock className="w-4 h-4" />
-                      {video.duration}
-                    </span>
-                    <button 
-                      onClick={() => window.open(video.url, '_blank')}
-                      className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors flex items-center gap-1"
-                    >
-                      <PlayCircle className="w-4 h-4" />
-                      Assistir
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </main>

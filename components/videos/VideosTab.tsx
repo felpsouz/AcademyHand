@@ -7,51 +7,30 @@ import { VideoForm } from './VideoForm';
 import { VideoList } from './VideoList';
 import { Modal } from '@/components/common/Modal';
 import { useToast } from '@/hooks/useToast';
+import { useVideos } from '@/hooks/useVideos';
+import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 
 export const VideosTab: React.FC = () => {
   const { showToast } = useToast();
   const [showModal, setShowModal] = useState(false);
   const [editingVideo, setEditingVideo] = useState<Video | null>(null);
 
-  // Estado dos vídeos - vazio inicialmente
-  const [videos, setVideos] = useState<Video[]>([]);
-
-  const handleAddVideo = (videoData: Partial<Video>) => {
-    const newVideo: Video = {
-      id: Date.now().toString(),
-      title: videoData.title || '',
-      description: videoData.description || '',
-      url: videoData.url || '',
-      belt: videoData.belt || 'Branca',
-      category: videoData.category || 'Geral',
-      duration: videoData.duration,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    setVideos(prev => [...prev, newVideo]);
-    showToast('Vídeo adicionado com sucesso!', 'success');
-  };
-
-  const handleUpdateVideo = (id: string, updates: Partial<Video>) => {
-    setVideos(prev => prev.map(v => 
-      v.id === id ? { ...v, ...updates, updatedAt: new Date().toISOString() } : v
-    ));
-    showToast('Vídeo atualizado com sucesso!', 'success');
-  };
-
-  const handleDeleteVideo = (id: string) => {
-    setVideos(prev => prev.filter(v => v.id !== id));
-    showToast('Vídeo removido', 'info');
-  };
+  // 🔥 USAR O HOOK useVideos em vez de estado local
+  const { videos, loading, error, deleteVideo, refetch } = useVideos();
 
   const handleEdit = (video: Video) => {
     setEditingVideo(video);
     setShowModal(true);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('Tem certeza que deseja excluir este vídeo?')) {
-      handleDeleteVideo(id);
+      try {
+        await deleteVideo(id);
+        showToast('Vídeo removido', 'info');
+      } catch (error) {
+        showToast('Erro ao remover vídeo', 'error');
+      }
     }
   };
 
@@ -62,16 +41,33 @@ export const VideosTab: React.FC = () => {
   const handleFormSuccess = () => {
     setShowModal(false);
     setEditingVideo(null);
+    // Recarregar a lista de vídeos após salvar
+    refetch();
   };
 
-  const handleFormSubmit = (videoData: Partial<Video>) => {
-    if (editingVideo) {
-      handleUpdateVideo(editingVideo.id, videoData);
-    } else {
-      handleAddVideo(videoData);
-    }
-    handleFormSuccess();
-  };
+  // Mostrar loading enquanto carrega
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center py-12">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+
+  // Mostrar erro se houver
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-red-600">{error}</p>
+        <button 
+          onClick={refetch}
+          className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+        >
+          Tentar novamente
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -99,7 +95,10 @@ export const VideosTab: React.FC = () => {
       {/* Modal de Vídeo */}
       <Modal
         isOpen={showModal}
-        onClose={handleFormSuccess}
+        onClose={() => {
+          setShowModal(false);
+          setEditingVideo(null);
+        }}
         title={editingVideo ? 'Editar Vídeo' : 'Novo Vídeo'}
         size="lg"
       >

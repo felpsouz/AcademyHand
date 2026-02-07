@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Video, BeltLevel } from '@/types';
 import { useToast } from '@/hooks/useToast';
 import { validateURL } from '@/utils/validators';
+import { videoService } from '@/services/firebase/videos';
 
 interface VideoFormProps {
   video?: Video | null;
@@ -65,13 +66,15 @@ export const VideoForm: React.FC<VideoFormProps> = ({ video, onSuccess }) => {
     try {
       setLoading(true);
       
-      // Mock save - você substituirá por Firebase depois
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      showToast(
-        video ? 'Vídeo atualizado com sucesso!' : 'Vídeo adicionado com sucesso!',
-        'success'
-      );
+      if (video?.id) {
+        // Atualizar vídeo existente
+        await videoService.updateVideo(video.id, formData);
+        showToast('Vídeo atualizado com sucesso!', 'success');
+      } else {
+        // Criar novo vídeo
+        await videoService.createVideo(formData);
+        showToast('Vídeo adicionado com sucesso!', 'success');
+      }
       
       onSuccess();
     } catch (error) {
