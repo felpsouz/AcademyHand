@@ -112,3 +112,18 @@ export interface Attendance {
   timestamp: string;
   notes?: string;
 }
+
+// Stripe
+export type PlanKey = 'gi' | 'nogi' | 'completo';
+export type Periodicidade = 'mensal' | 'trimestral';
+export type StripePaymentStatus = 'active' | 'overdue' | 'cancelled' | 'pending';
+
+// Atualizar Student com campos do Stripe
+// (adicionar esses campos opcionais na interface Student já existente)
+// stripeCustomerId?: string;
+// stripeSubscriptionId?: string;
+// plano?: PlanKey;
+// periodicidade?: Periodicidade;
+// stripePaymentStatus?: StripePaymentStatus;
+// nextPaymentAt?: string;
+// lastPaymentAt?: string;

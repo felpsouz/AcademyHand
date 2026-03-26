@@ -1,5 +1,8 @@
 'use client'
 
+
+import { StripeTab } from './StripeTab';
+import { CreditCard } from 'lucide-react';
 import React, { useState } from 'react';
 import { TrendingUp, TrendingDown, BarChart3, Plus, Receipt } from 'lucide-react';
 import { TransactionForm } from './TransactionForm';
@@ -11,7 +14,7 @@ import { formatCurrency } from '@/utils/formatters';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { InvoicesTab } from '@/components/invoices/InvoicesTab';
 
-type FinancialSubTab = 'transactions' | 'invoices';
+type FinancialSubTab = 'transactions' | 'invoices' | 'stripe';
 
 export const FinancialTab: React.FC = () => {
   const { transactions, loading: loadingTransactions, getMonthlyStats } = useTransactions();
@@ -125,38 +128,47 @@ export const FinancialTab: React.FC = () => {
               <Receipt className="w-4 h-4 inline mr-2" />
               Faturas
             </button>
+            <button
+              onClick={() => setActiveSubTab('stripe')}
+              className={`px-6 py-3 text-sm font-medium transition-colors ${
+              activeSubTab === 'stripe'
+              ? 'border-b-2 border-red-600 text-red-600'
+              : 'text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
+            >
+  <CreditCard className="w-4 h-4 inline mr-2" />
+  Assinaturas
+</button>
           </nav>
         </div>
 
         <div className="p-6">
-          {activeSubTab === 'transactions' ? (
-            <div className="space-y-4">
-              {/* Ações */}
-              <div className="flex justify-end">
-                <button 
-                  onClick={() => setShowModal(true)}
-                  className="w-full sm:w-auto px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  Nova Transação
-                </button>
-              </div>
-
-              {/* Lista de Transações */}
-              {transactions.length === 0 ? (
-                <div className="bg-gray-50 rounded-lg p-8 sm:p-12 text-center">
-                  <p className="text-sm sm:text-base text-gray-500">
-                    Nenhuma transação registrada. Clique em "Nova Transação" para começar.
-                  </p>
-                </div>
-              ) : (
-                <TransactionList transactions={transactions} />
-              )}
-            </div>
-          ) : (
-            <InvoicesTab />
-          )}
+  {activeSubTab === 'transactions' ? (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <button 
+          onClick={() => setShowModal(true)}
+          className="w-full sm:w-auto px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+        >
+          <Plus className="w-4 h-4" />
+          Nova Transação
+        </button>
+      </div>
+      {transactions.length === 0 ? (
+        <div className="bg-gray-50 rounded-lg p-8 sm:p-12 text-center">
+          <p className="text-sm sm:text-base text-gray-500">
+            Nenhuma transação registrada. Clique em "Nova Transação" para começar.
+          </p>
         </div>
+      ) : (
+        <TransactionList transactions={transactions} />
+      )}
+    </div>
+  ) : activeSubTab === 'invoices' ? (
+    <InvoicesTab />
+  ) : (
+    <StripeTab />
+  )}
+</div>
       </div>
 
       {/* Modal de Transação */}

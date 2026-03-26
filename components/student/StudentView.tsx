@@ -23,6 +23,13 @@ interface StudentData {
   status: string;
   monthlyFee: number;
   dueDate: number;
+  // Stripe
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+  stripePaymentStatus?: 'active' | 'overdue' | 'cancelled' | 'pending';
+  plano?: string;
+  periodicidade?: string;
+  nextPaymentAt?: string;
 }
 
 interface Invoice {
@@ -393,136 +400,163 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
         )}
 
         {activeTab === 'invoices' && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-green-500">
-                <div className="text-sm text-gray-500 mb-1">Faturas Pagas</div>
-                <div className="text-2xl font-bold text-green-600">
-                  {invoices.filter(inv => inv.status === 'paid').length}
+  <div className="space-y-6">
+
+    {/* Bloco Stripe */}
+    {studentData.stripePaymentStatus ? (
+      <div className={`p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+        studentData.stripePaymentStatus === 'active'    ? 'bg-green-50 border-green-200' :
+        studentData.stripePaymentStatus === 'overdue'   ? 'bg-red-50 border-red-200' :
+        studentData.stripePaymentStatus === 'cancelled' ? 'bg-gray-50 border-gray-200' :
+                                                          'bg-yellow-50 border-yellow-200'
+      }`}>
+        <div>
+          <p className="text-sm font-semibold text-gray-700">Assinatura</p>
+          {studentData.plano && (
+            <p className="text-xs text-gray-500 mt-0.5 capitalize">
+              Plano: {studentData.plano} · {studentData.periodicidade}
+            </p>
+          )}
+          {studentData.nextPaymentAt && (
+            <p className="text-xs text-gray-400 mt-0.5">
+              Próxima cobrança: {new Date(studentData.nextPaymentAt).toLocaleDateString('pt-BR')}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+            studentData.stripePaymentStatus === 'active'    ? 'bg-green-100 text-green-700' :
+            studentData.stripePaymentStatus === 'overdue'   ? 'bg-red-100 text-red-700' :
+            studentData.stripePaymentStatus === 'cancelled' ? 'bg-gray-100 text-gray-600' :
+                                                              'bg-yellow-100 text-yellow-700'
+          }`}>
+            {{ active: 'Em dia', overdue: 'Em atraso', cancelled: 'Cancelado', pending: 'Pendente' }
+              [studentData.stripePaymentStatus]}
+          </span>
+          {studentData.stripeCustomerId && (
+            <button
+              onClick={async () => {
+                const res = await fetch('/api/stripe/portal', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ customerId: studentData.stripeCustomerId }),
+                });
+                const { url } = await res.json();
+                window.location.href = url;
+              }}
+              className="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+            >
+              Gerenciar assinatura
+            </button>
+          )}
+        </div>
+      </div>
+    ) : (
+      <div className="p-4 rounded-xl border border-dashed border-yellow-300 bg-yellow-50 text-sm text-yellow-700">
+        Você ainda não possui uma assinatura ativa. Entre em contato com a academia.
+      </div>
+    )}
+
+    {/* Cards de resumo — igual ao original */}
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-green-500">
+        <div className="text-sm text-gray-500 mb-1">Faturas Pagas</div>
+        <div className="text-2xl font-bold text-green-600">
+          {invoices.filter(inv => inv.status === 'paid').length}
+        </div>
+      </div>
+      <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-yellow-500">
+        <div className="text-sm text-gray-500 mb-1">Pendentes</div>
+        <div className="text-2xl font-bold text-yellow-600">
+          {invoices.filter(inv => inv.status === 'pending').length}
+        </div>
+      </div>
+      <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-red-500">
+        <div className="text-sm text-gray-500 mb-1">Atrasadas</div>
+        <div className="text-2xl font-bold text-red-600">
+          {overdueCount}
+        </div>
+      </div>
+    </div>
+
+    {/* Lista de faturas — igual ao original */}
+    {invoices.length === 0 ? (
+      <div className="bg-white rounded-lg shadow-sm p-8 text-center">
+        <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+        <p className="text-gray-500">Você não possui faturas cadastradas</p>
+      </div>
+    ) : (
+      <div className="space-y-3">
+        {invoices.map((invoice) => (
+          <div
+            key={invoice.id}
+            className={`bg-white rounded-lg shadow-sm p-6 border-l-4 ${
+              invoice.status === 'paid'    ? 'border-green-500' :
+              invoice.status === 'overdue' ? 'border-red-500'   : 'border-yellow-500'
+            }`}
+          >
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex-1">
+                <div className="flex items-center gap-3 mb-3">
+                  <h4 className="text-lg font-semibold text-gray-900">
+                    {getMonthName(invoice.month)} / {invoice.year}
+                  </h4>
+                  <span className={`px-3 py-1 text-xs font-semibold rounded-full ${getStatusColor(invoice.status)}`}>
+                    {getStatusText(invoice.status)}
+                  </span>
                 </div>
-              </div>
-              
-              <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-yellow-500">
-                <div className="text-sm text-gray-500 mb-1">Pendentes</div>
-                <div className="text-2xl font-bold text-yellow-600">
-                  {invoices.filter(inv => inv.status === 'pending').length}
-                </div>
-              </div>
-              
-              <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-red-500">
-                <div className="text-sm text-gray-500 mb-1">Atrasadas</div>
-                <div className="text-2xl font-bold text-red-600">
-                  {overdueCount}
-                </div>
-              </div>
-            </div>
-
-            {invoices.length === 0 ? (
-              <div className="bg-white rounded-lg shadow-sm p-8 text-center">
-                <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500">Você não possui faturas cadastradas</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {invoices.map((invoice) => (
-                  <div
-                    key={invoice.id}
-                    className={`bg-white rounded-lg shadow-sm p-6 border-l-4 ${
-                      invoice.status === 'paid'
-                        ? 'border-green-500'
-                        : invoice.status === 'overdue'
-                        ? 'border-red-500'
-                        : 'border-yellow-500'
-                    }`}
-                  >
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-3">
-                          <h4 className="text-lg font-semibold text-gray-900">
-                            {getMonthName(invoice.month)} / {invoice.year}
-                          </h4>
-                          <span className={`px-3 py-1 text-xs font-semibold rounded-full ${getStatusColor(invoice.status)}`}>
-                            {getStatusText(invoice.status)}
-                          </span>
-                        </div>
-
-                        {invoice.description && (
-                          <p className="text-sm text-gray-600 mb-3">
-                            {invoice.description}
-                          </p>
-                        )}
-
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-                          <div>
-                            <span className="text-gray-500">Valor:</span>
-                            <p className="font-semibold text-gray-900 text-lg">
-                              {formatCurrency(invoice.amount)}
-                            </p>
-                          </div>
-                          
-                          <div>
-                            <span className="text-gray-500">Vencimento:</span>
-                            <p className="font-medium text-gray-900">
-                              {invoice.dueDate}
-                            </p>
-                          </div>
-                          
-                          {invoice.status === 'paid' && invoice.paidAt && (
-                            <div>
-                              <span className="text-gray-500">Pagamento:</span>
-                              <p className="font-medium text-green-700">
-                                {invoice.paidAt}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {invoice.status !== 'paid' && invoice.pixKey && (
-                        <div className="md:w-64">
-                          <div className="p-4 bg-blue-50 rounded-lg">
-                            <div className="text-xs text-gray-600 mb-1">
-                              Pague com PIX:
-                            </div>
-                            <div className="font-mono text-sm text-blue-700 break-all">
-                              {invoice.pixKey}
-                            </div>
-                            <button
-                              onClick={() => {
-                                navigator.clipboard.writeText(invoice.pixKey || '');
-                                alert('Chave PIX copiada!');
-                              }}
-                              className="mt-2 text-xs text-blue-600 hover:text-blue-800 font-medium"
-                            >
-                              Copiar chave
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {invoice.status === 'overdue' && (
-                      <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                        <div className="flex items-start gap-2">
-                          <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
-                          <div>
-                            <p className="text-sm font-medium text-red-800">
-                              Esta fatura está atrasada
-                            </p>
-                            <p className="text-xs text-red-600 mt-1">
-                              Por favor, regularize o pagamento o quanto antes.
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                {invoice.description && (
+                  <p className="text-sm text-gray-600 mb-3">{invoice.description}</p>
+                )}
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-500">Valor:</span>
+                    <p className="font-semibold text-gray-900 text-lg">{formatCurrency(invoice.amount)}</p>
                   </div>
-                ))}
+                  <div>
+                    <span className="text-gray-500">Vencimento:</span>
+                    <p className="font-medium text-gray-900">{invoice.dueDate}</p>
+                  </div>
+                  {invoice.status === 'paid' && invoice.paidAt && (
+                    <div>
+                      <span className="text-gray-500">Pagamento:</span>
+                      <p className="font-medium text-green-700">{invoice.paidAt}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {invoice.status !== 'paid' && invoice.pixKey && (
+                <div className="md:w-64">
+                  <div className="p-4 bg-blue-50 rounded-lg">
+                    <div className="text-xs text-gray-600 mb-1">Pague com PIX:</div>
+                    <div className="font-mono text-sm text-blue-700 break-all">{invoice.pixKey}</div>
+                    <button
+                      onClick={() => { navigator.clipboard.writeText(invoice.pixKey || ''); alert('Chave PIX copiada!'); }}
+                      className="mt-2 text-xs text-blue-600 hover:text-blue-800 font-medium"
+                    >
+                      Copiar chave
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+            {invoice.status === 'overdue' && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-red-800">Esta fatura está atrasada</p>
+                    <p className="text-xs text-red-600 mt-1">Por favor, regularize o pagamento o quanto antes.</p>
+                  </div>
+                </div>
               </div>
             )}
           </div>
-        )}
-
+        ))}
+      </div>
+    )}
+  </div>
+)}
         {activeTab === 'attendance' && (
           <div className="bg-white rounded-lg shadow-sm p-6">
             <div className="flex items-center gap-2 mb-6">
