@@ -1,10 +1,9 @@
 'use client'
 
-
 import { StripeTab } from './StripeTab';
 import { CreditCard } from 'lucide-react';
 import React, { useState } from 'react';
-import { TrendingUp, TrendingDown, BarChart3, Plus, Receipt } from 'lucide-react';
+import { TrendingUp, TrendingDown, BarChart3, Plus } from 'lucide-react';
 import { TransactionForm } from './TransactionForm';
 import { TransactionList } from './TransactionList';
 import { Modal } from '@/components/common/Modal';
@@ -12,9 +11,8 @@ import { useTransactions } from '@/hooks/useTransactions';
 import { useStudents } from '@/hooks/useStudents';
 import { formatCurrency } from '@/utils/formatters';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { InvoicesTab } from '@/components/invoices/InvoicesTab';
 
-type FinancialSubTab = 'transactions' | 'invoices' | 'stripe';
+type FinancialSubTab = 'transactions' | 'stripe';
 
 export const FinancialTab: React.FC = () => {
   const { transactions, loading: loadingTransactions, getMonthlyStats } = useTransactions();
@@ -24,7 +22,6 @@ export const FinancialTab: React.FC = () => {
 
   const stats = getMonthlyStats();
 
-  // Calcular total de mensalidades dos alunos ativos
   const monthlyFeesTotal = students
     .filter(s => s.status === 'active')
     .reduce((sum, s) => sum + (s.monthlyFee || 0), 0);
@@ -45,7 +42,7 @@ export const FinancialTab: React.FC = () => {
     <div className="space-y-4 sm:space-y-6">
       {/* Estatísticas do Mês */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {/* Card 1 - Receita */}
+        {/* Receita */}
         <div className="bg-white p-4 sm:p-6 rounded-lg shadow-sm">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs sm:text-sm text-gray-600 truncate">Receita do Mês</span>
@@ -59,7 +56,7 @@ export const FinancialTab: React.FC = () => {
           </p>
         </div>
 
-        {/* Card 2 - Despesas */}
+        {/* Despesas */}
         <div className="bg-white p-4 sm:p-6 rounded-lg shadow-sm">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs sm:text-sm text-gray-600 truncate">Despesas do Mês</span>
@@ -73,7 +70,7 @@ export const FinancialTab: React.FC = () => {
           </p>
         </div>
 
-        {/* Card 3 - Lucro */}
+        {/* Lucro */}
         <div className="bg-white p-4 sm:p-6 rounded-lg shadow-sm">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs sm:text-sm text-gray-600 truncate">Lucro do Mês</span>
@@ -87,7 +84,7 @@ export const FinancialTab: React.FC = () => {
           </p>
         </div>
 
-        {/* Card 4 - Mensalidades */}
+        {/* Mensalidades */}
         <div className="bg-white p-4 sm:p-6 rounded-lg shadow-sm">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs sm:text-sm text-gray-600 truncate">Mensalidades Ativas</span>
@@ -102,7 +99,7 @@ export const FinancialTab: React.FC = () => {
         </div>
       </div>
 
-      {/* Abas Internas: Transações e Faturas */}
+      {/* Abas Internas */}
       <div className="bg-white rounded-lg shadow-sm">
         <div className="border-b border-gray-200">
           <nav className="flex -mb-px">
@@ -118,57 +115,45 @@ export const FinancialTab: React.FC = () => {
               Transações
             </button>
             <button
-              onClick={() => setActiveSubTab('invoices')}
+              onClick={() => setActiveSubTab('stripe')}
               className={`px-6 py-3 text-sm font-medium transition-colors ${
-                activeSubTab === 'invoices'
+                activeSubTab === 'stripe'
                   ? 'border-b-2 border-red-600 text-red-600'
                   : 'text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              <Receipt className="w-4 h-4 inline mr-2" />
-              Faturas
+              <CreditCard className="w-4 h-4 inline mr-2" />
+              Assinaturas
             </button>
-            <button
-              onClick={() => setActiveSubTab('stripe')}
-              className={`px-6 py-3 text-sm font-medium transition-colors ${
-              activeSubTab === 'stripe'
-              ? 'border-b-2 border-red-600 text-red-600'
-              : 'text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
-            >
-  <CreditCard className="w-4 h-4 inline mr-2" />
-  Assinaturas
-</button>
           </nav>
         </div>
 
         <div className="p-6">
-  {activeSubTab === 'transactions' ? (
-    <div className="space-y-4">
-      <div className="flex justify-end">
-        <button 
-          onClick={() => setShowModal(true)}
-          className="w-full sm:w-auto px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          Nova Transação
-        </button>
-      </div>
-      {transactions.length === 0 ? (
-        <div className="bg-gray-50 rounded-lg p-8 sm:p-12 text-center">
-          <p className="text-sm sm:text-base text-gray-500">
-            Nenhuma transação registrada. Clique em "Nova Transação" para começar.
-          </p>
+          {activeSubTab === 'transactions' ? (
+            <div className="space-y-4">
+              <div className="flex justify-end">
+                <button 
+                  onClick={() => setShowModal(true)}
+                  className="w-full sm:w-auto px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  Nova Transação
+                </button>
+              </div>
+              {transactions.length === 0 ? (
+                <div className="bg-gray-50 rounded-lg p-8 sm:p-12 text-center">
+                  <p className="text-sm sm:text-base text-gray-500">
+                    Nenhuma transação registrada. Clique em "Nova Transação" para começar.
+                  </p>
+                </div>
+              ) : (
+                <TransactionList transactions={transactions} />
+              )}
+            </div>
+          ) : (
+            <StripeTab />
+          )}
         </div>
-      ) : (
-        <TransactionList transactions={transactions} />
-      )}
-    </div>
-  ) : activeSubTab === 'invoices' ? (
-    <InvoicesTab />
-  ) : (
-    <StripeTab />
-  )}
-</div>
       </div>
 
       {/* Modal de Transação */}

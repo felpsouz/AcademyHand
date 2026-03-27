@@ -1,16 +1,46 @@
 'use client'
 
 import React, { useEffect, useState } from 'react';
-import { CreditCard, RefreshCw, ExternalLink, CheckCircle, AlertCircle, XCircle, Clock } from 'lucide-react';
+import {
+  CreditCard,
+  RefreshCw,
+  ExternalLink,
+  CheckCircle,
+  AlertCircle,
+  XCircle,
+  Clock,
+  Plus,
+} from 'lucide-react';
 import { firestoreService } from '@/services/firebase/firestore';
 import { Student, PlanKey, Periodicidade, StripePaymentStatus } from '@/types';
 import { PLANS } from '@/lib/plans';
+import { CobrancaAvulsaModal } from './CobrancaAvulsaModal';
+import { Modal } from '@/components/common/Modal';
 
-const statusConfig: Record<StripePaymentStatus, { label: string; color: string; icon: React.ReactNode }> = {
-  active:    { label: 'Em dia',    color: 'bg-green-100 text-green-700',  icon: <CheckCircle className="w-4 h-4" /> },
-  overdue:   { label: 'Em atraso', color: 'bg-red-100 text-red-700',     icon: <AlertCircle className="w-4 h-4" /> },
-  cancelled: { label: 'Cancelado', color: 'bg-gray-100 text-gray-600',   icon: <XCircle className="w-4 h-4" /> },
-  pending:   { label: 'Pendente',  color: 'bg-yellow-100 text-yellow-700', icon: <Clock className="w-4 h-4" /> },
+const statusConfig: Record<
+  StripePaymentStatus,
+  { label: string; color: string; icon: React.ReactNode }
+> = {
+  active: {
+    label: 'Em dia',
+    color: 'bg-green-100 text-green-700',
+    icon: <CheckCircle className="w-4 h-4" />,
+  },
+  overdue: {
+    label: 'Em atraso',
+    color: 'bg-red-100 text-red-700',
+    icon: <AlertCircle className="w-4 h-4" />,
+  },
+  cancelled: {
+    label: 'Cancelado',
+    color: 'bg-gray-100 text-gray-600',
+    icon: <XCircle className="w-4 h-4" />,
+  },
+  pending: {
+    label: 'Pendente',
+    color: 'bg-yellow-100 text-yellow-700',
+    icon: <Clock className="w-4 h-4" />,
+  },
 };
 
 export const StripeTab: React.FC = () => {
@@ -18,6 +48,7 @@ export const StripeTab: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [generatingLink, setGeneratingLink] = useState<string | null>(null);
   const [filter, setFilter] = useState<StripePaymentStatus | 'all'>('all');
+  const [cobrancaStudent, setCobrancaStudent] = useState<Student | null>(null);
 
   useEffect(() => {
     loadStudents();
@@ -33,7 +64,11 @@ export const StripeTab: React.FC = () => {
     setLoading(false);
   };
 
-  const generateCheckoutLink = async (student: Student, plano: PlanKey, periodicidade: Periodicidade) => {
+  const generateCheckoutLink = async (
+    student: Student,
+    plano: PlanKey,
+    periodicidade: Periodicidade
+  ) => {
     setGeneratingLink(student.id);
     try {
       const res = await fetch('/api/stripe/checkout', {
@@ -67,16 +102,18 @@ export const StripeTab: React.FC = () => {
     window.open(url, '_blank');
   };
 
-  const filtered = students.filter(s => {
+  const filtered = students.filter((s) => {
     if (filter === 'all') return true;
     return (s.stripePaymentStatus ?? 'pending') === filter;
   });
 
   const stats = {
-    active:    students.filter(s => s.stripePaymentStatus === 'active').length,
-    overdue:   students.filter(s => s.stripePaymentStatus === 'overdue').length,
-    cancelled: students.filter(s => s.stripePaymentStatus === 'cancelled').length,
-    pending:   students.filter(s => !s.stripePaymentStatus || s.stripePaymentStatus === 'pending').length,
+    active: students.filter((s) => s.stripePaymentStatus === 'active').length,
+    overdue: students.filter((s) => s.stripePaymentStatus === 'overdue').length,
+    cancelled: students.filter((s) => s.stripePaymentStatus === 'cancelled').length,
+    pending: students.filter(
+      (s) => !s.stripePaymentStatus || s.stripePaymentStatus === 'pending'
+    ).length,
   };
 
   if (loading) {
@@ -92,15 +129,39 @@ export const StripeTab: React.FC = () => {
       {/* Cards de resumo */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { key: 'active',    label: 'Em dia',    value: stats.active,    color: 'border-green-500 text-green-600' },
-          { key: 'overdue',   label: 'Em atraso', value: stats.overdue,   color: 'border-red-500 text-red-600' },
-          { key: 'pending',   label: 'Pendente',  value: stats.pending,   color: 'border-yellow-500 text-yellow-600' },
-          { key: 'cancelled', label: 'Cancelado', value: stats.cancelled, color: 'border-gray-400 text-gray-500' },
-        ].map(card => (
+          {
+            key: 'active',
+            label: 'Em dia',
+            value: stats.active,
+            color: 'border-green-500 text-green-600',
+          },
+          {
+            key: 'overdue',
+            label: 'Em atraso',
+            value: stats.overdue,
+            color: 'border-red-500 text-red-600',
+          },
+          {
+            key: 'pending',
+            label: 'Pendente',
+            value: stats.pending,
+            color: 'border-yellow-500 text-yellow-600',
+          },
+          {
+            key: 'cancelled',
+            label: 'Cancelado',
+            value: stats.cancelled,
+            color: 'border-gray-400 text-gray-500',
+          },
+        ].map((card) => (
           <button
             key={card.key}
-            onClick={() => setFilter(filter === card.key ? 'all' : card.key as StripePaymentStatus)}
-            className={`bg-white p-4 rounded-lg shadow-sm border-l-4 text-left transition hover:shadow-md ${card.color} ${filter === card.key ? 'ring-2 ring-offset-1 ring-gray-300' : ''}`}
+            onClick={() =>
+              setFilter(filter === card.key ? 'all' : (card.key as StripePaymentStatus))
+            }
+            className={`bg-white p-4 rounded-lg shadow-sm border-l-4 text-left transition hover:shadow-md ${card.color} ${
+              filter === card.key ? 'ring-2 ring-offset-1 ring-gray-300' : ''
+            }`}
           >
             <div className="text-2xl font-bold">{card.value}</div>
             <div className="text-sm text-gray-500">{card.label}</div>
@@ -115,7 +176,7 @@ export const StripeTab: React.FC = () => {
             Nenhum aluno neste filtro
           </div>
         ) : (
-          filtered.map(student => {
+          filtered.map((student) => {
             const status = (student.stripePaymentStatus ?? 'pending') as StripePaymentStatus;
             const cfg = statusConfig[status];
             const planoAtual = student.plano as PlanKey | undefined;
@@ -128,7 +189,9 @@ export const StripeTab: React.FC = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <h4 className="font-semibold text-gray-900">{student.name}</h4>
-                      <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.color}`}>
+                      <span
+                        className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.color}`}
+                      >
                         {cfg.icon} {cfg.label}
                       </span>
                       {planLabel && (
@@ -140,7 +203,8 @@ export const StripeTab: React.FC = () => {
                     <p className="text-sm text-gray-500 mt-1 truncate">{student.email}</p>
                     {student.nextPaymentAt && (
                       <p className="text-xs text-gray-400 mt-0.5">
-                        Próxima cobrança: {new Date(student.nextPaymentAt).toLocaleDateString('pt-BR')}
+                        Próxima cobrança:{' '}
+                        {new Date(student.nextPaymentAt).toLocaleDateString('pt-BR')}
                       </p>
                     )}
                   </div>
@@ -148,29 +212,41 @@ export const StripeTab: React.FC = () => {
                   {/* Ações */}
                   <div className="flex flex-wrap items-center gap-2">
                     {student.stripeCustomerId ? (
-                      <button
-                        onClick={() => openPortal(student.stripeCustomerId!)}
-                        className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        Portal Stripe
-                      </button>
+                      <>
+                        <button
+                          onClick={() => openPortal(student.stripeCustomerId!)}
+                          className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          Portal Stripe
+                        </button>
+
+                        <button
+                          onClick={() => setCobrancaStudent(student)}
+                          className="flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
+                        >
+                          <Plus className="w-3 h-3" />
+                          Cobrança avulsa
+                        </button>
+                      </>
                     ) : (
                       /* Aluno sem assinatura — gerar link de checkout */
                       <div className="flex flex-wrap gap-2">
-                        {(['gi', 'nogi', 'completo'] as PlanKey[]).map(plano => (
-                          ['mensal', 'trimestral'].map(periodo => (
+                        {(['gi', 'nogi', 'completo'] as PlanKey[]).map((plano) =>
+                          ['mensal', 'trimestral'].map((periodo) => (
                             <button
                               key={`${plano}-${periodo}`}
-                              onClick={() => generateCheckoutLink(student, plano, periodo as Periodicidade)}
-                              disabled={generatingLink === student.id}
+                              onClick={() =>
+                                generateCheckoutLink(student, plano, periodo as Periodicidade)
+                              }
+                                                            disabled={generatingLink === student.id}
                               className="flex items-center gap-1 px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition"
                             >
                               <CreditCard className="w-3 h-3" />
                               {PLANS[plano].label} {periodo}
                             </button>
                           ))
-                        ))}
+                        )}
                       </div>
                     )}
                   </div>
@@ -180,6 +256,22 @@ export const StripeTab: React.FC = () => {
           })
         )}
       </div>
+
+      {/* Modal de cobrança avulsa */}
+      {cobrancaStudent && (
+        <Modal
+          isOpen={!!cobrancaStudent}
+          onClose={() => setCobrancaStudent(null)}
+          title={`Cobrança avulsa — ${cobrancaStudent.name}`}
+          size="md"
+        >
+          <CobrancaAvulsaModal
+            student={cobrancaStudent}
+            onClose={() => setCobrancaStudent(null)}
+          />
+        </Modal>
+      )}
     </div>
   );
 };
+
