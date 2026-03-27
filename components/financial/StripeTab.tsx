@@ -65,33 +65,34 @@ export const StripeTab: React.FC = () => {
   };
 
   const generateCheckoutLink = async (
-    student: Student,
-    plano: PlanKey,
-    periodicidade: Periodicidade
-  ) => {
-    setGeneratingLink(student.id);
-    try {
-      const res = await fetch('/api/stripe/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          studentId: student.id,
-          studentEmail: student.email,
-          studentName: student.name,
-          plano,
-          periodicidade,
-        }),
-      });
-      const { url } = await res.json();
-      navigator.clipboard.writeText(url);
-      alert(`Link copiado! Envie para ${student.name}`);
-    } catch {
-      alert('Erro ao gerar link');
-    } finally {
-      setGeneratingLink(null);
-    }
-  };
-
+  student: Student,
+  plano: PlanKey,
+  periodicidade: Periodicidade
+) => {
+  setGeneratingLink(student.id);
+  try {
+    const res = await fetch('/api/stripe/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode: 'subscription', // ← adicionar isso
+        studentId: student.id,
+        studentEmail: student.email,
+        studentName: student.name,
+        plano,
+        periodicidade,
+      }),
+    });
+    const { url } = await res.json();
+    if (!url) throw new Error('URL não gerada');
+    navigator.clipboard.writeText(url);
+    alert(`Link copiado! Envie para ${student.name}`);
+  } catch (err) {
+    alert('Erro ao gerar link');
+  } finally {
+    setGeneratingLink(null);
+  }
+};
   const openPortal = async (customerId: string) => {
     const res = await fetch('/api/stripe/portal', {
       method: 'POST',

@@ -32,6 +32,7 @@ export const CobrancaAvulsaModal: React.FC<Props> = ({ student, onClose }) => {
 
       if (!description || !amount || amount <= 0) {
         alert('Preencha todos os campos');
+        setLoading(false);
         return;
       }
 
@@ -48,11 +49,19 @@ export const CobrancaAvulsaModal: React.FC<Props> = ({ student, onClose }) => {
         }),
       });
 
-      const { url } = await res.json();
-      navigator.clipboard.writeText(url);
+      const data = await res.json();
+      console.log('Resposta checkout:', data);
+
+      if (!data.url) {
+        alert(`Erro: ${data.error ?? 'URL não gerada'}`);
+        return;
+      }
+
+      navigator.clipboard.writeText(data.url);
       alert(`Link copiado! Envie para ${student.name}`);
       onClose();
-    } catch {
+    } catch (err) {
+      console.error(err);
       alert('Erro ao gerar cobrança');
     } finally {
       setLoading(false);
