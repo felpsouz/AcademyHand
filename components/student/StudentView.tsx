@@ -4,11 +4,11 @@ import React, { useState, useEffect } from 'react';
 import {
   Activity, CheckCircle2, Video,
   Clock, PlayCircle, History, CheckCircle,
-  AlertCircle, CalendarCheck, CreditCard, ExternalLink,
+  AlertCircle, CreditCard, ExternalLink,
   TrendingUp, Shield, ChevronRight,
 } from 'lucide-react';
 import { db } from '@/services/firebase/config';
-import { doc, getDoc, collection, query, where, getDocs, addDoc, orderBy, limit } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 
 interface StudentViewProps {
   userId: string;
@@ -65,7 +65,6 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [videos, setVideos] = useState<VideoData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [confirmingAttendance, setConfirmingAttendance] = useState(false);
   const [assinando, setAssinando] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'pagamento' | 'attendance' | 'videos'>('overview');
 
@@ -114,25 +113,6 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
         };
       }));
     } catch (err) { console.error(err); }
-  };
-
-  const confirmAttendance = async () => {
-    if (!userId || !studentData) return;
-    try {
-      setConfirmingAttendance(true);
-      const today = new Date();
-      await addDoc(collection(db, 'attendance'), {
-        studentId: userId,
-        studentName: studentData.name,
-        date: today.toLocaleDateString('pt-BR'),
-        time: today.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-        confirmed: true,
-        createdAt: today.toISOString(),
-      });
-      await loadAttendance();
-      alert('Presença confirmada!');
-    } catch (err) { alert('Erro ao confirmar presença.'); }
-    finally { setConfirmingAttendance(false); }
   };
 
   const openPortal = async () => {
@@ -304,7 +284,7 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
               </div>
             </div>
 
-            {/* Alerta de pagamento pendente no overview */}
+            {/* Alerta de pagamento pendente */}
             {!hasActiveSubscription && studentData.plano && (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
@@ -323,15 +303,6 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
                 </button>
               </div>
             )}
-
-            <button
-              onClick={confirmAttendance}
-              disabled={confirmingAttendance}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition font-medium shadow-sm disabled:opacity-50"
-            >
-              <CalendarCheck className="w-5 h-5" />
-              {confirmingAttendance ? 'Confirmando...' : 'Confirmar Presença Hoje'}
-            </button>
           </div>
         )}
 
@@ -339,7 +310,6 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
         {activeTab === 'pagamento' && (
           <div className="space-y-4">
             {hasActiveSubscription ? (
-              /* Assinatura ativa ou em atraso */
               <div className={`rounded-2xl border-2 p-6 ${statusInfo.bg} ${statusInfo.border}`}>
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="space-y-1">
@@ -398,7 +368,6 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
                 )}
               </div>
             ) : (
-              /* Sem assinatura ou cancelada */
               <div className={`rounded-2xl border-2 p-6 ${
                 stripeStatus === 'cancelled' ? 'border-gray-200 bg-gray-50' : 'border-amber-300 bg-amber-50'
               }`}>
@@ -435,7 +404,6 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
               </div>
             )}
 
-            {/* Como funciona */}
             <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
               <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
                 <TrendingUp className="w-4 h-4 text-indigo-500" />
@@ -458,7 +426,7 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
           </div>
         )}
 
-        {/* PRESENÇAS */}
+        {/* PRESENÇAS — somente leitura */}
         {activeTab === 'attendance' && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -471,15 +439,6 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
                 <p className="text-xs text-gray-500 mt-1">Este mês</p>
               </div>
             </div>
-
-            <button
-              onClick={confirmAttendance}
-              disabled={confirmingAttendance}
-              className="w-full flex items-center justify-center gap-2 py-3 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition font-medium shadow-sm disabled:opacity-50"
-            >
-              <CalendarCheck className="w-5 h-5" />
-              {confirmingAttendance ? 'Confirmando...' : 'Confirmar Presença Hoje'}
-            </button>
 
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="px-5 py-3 border-b border-gray-50 flex items-center gap-2">
