@@ -62,6 +62,14 @@ export interface Student {
   updatedAt: string;
   totalAttendances: number;
   beltHistory: BeltChange[];
+  // Stripe
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+  stripePaymentStatus?: 'active' | 'overdue' | 'cancelled' | 'pending';
+  plano?: string;
+  periodicidade?: string;
+  nextPaymentAt?: string;
+  lastPaymentAt?: string;
 }
 
 export interface BeltChange {

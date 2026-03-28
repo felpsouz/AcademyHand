@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   switch (event.type) {
 
     case 'checkout.session.completed': {
-      const session = event.data.object as Stripe.CheckoutSession;
+      const session = event.data.object as Stripe.Checkout.Session;
       const { studentId, plano, periodicidade, type, description } = session.metadata ?? {};
 
       if (type === 'subscription' && studentId) {
@@ -47,41 +47,43 @@ export async function POST(req: NextRequest) {
     }
 
     case 'invoice.paid': {
-      const invoice = event.data.object as Stripe.Invoice;
-      if (!invoice.subscription) break;
-      const sub = await stripe.subscriptions.retrieve(invoice.subscription as string);
-      const studentId = sub.metadata?.studentId;
-      if (studentId) {
-        await db.collection('students').doc(studentId).update({
-          stripePaymentStatus: 'active',
-          lastPaymentAt: new Date().toISOString(),
-          nextPaymentAt: new Date(sub.current_period_end * 1000).toISOString(),
-        });
-        await db.collection('payments').add({
-          studentId,
-          amount: invoice.amount_paid / 100,
-          status: 'paid',
-          type: 'subscription',
-          stripeInvoiceId: invoice.id,
-          invoiceUrl: invoice.hosted_invoice_url,
-          paidAt: new Date().toISOString(),
-        });
-      }
-      break;
-    }
+  const invoice = event.data.object as Stripe.Invoice;
+  const subscriptionId = (invoice as any).subscription as string | null;
+  if (!subscriptionId) break;
+  const sub = await stripe.subscriptions.retrieve(subscriptionId) as any;
+  const studentId = sub.metadata?.studentId;
+  if (studentId) {
+    await db.collection('students').doc(studentId).update({
+      stripePaymentStatus: 'active',
+      lastPaymentAt: new Date().toISOString(),
+      nextPaymentAt: new Date(sub.current_period_end * 1000).toISOString(),
+    });
+    await db.collection('payments').add({
+      studentId,
+      amount: invoice.amount_paid / 100,
+      status: 'paid',
+      type: 'subscription',
+      stripeInvoiceId: invoice.id,
+      invoiceUrl: (invoice as any).hosted_invoice_url ?? null,
+      paidAt: new Date().toISOString(),
+    });
+  }
+  break;
+}
 
     case 'invoice.payment_failed': {
-      const invoice = event.data.object as Stripe.Invoice;
-      if (!invoice.subscription) break;
-      const sub = await stripe.subscriptions.retrieve(invoice.subscription as string);
-      const studentId = sub.metadata?.studentId;
-      if (studentId) {
-        await db.collection('students').doc(studentId).update({
-          stripePaymentStatus: 'overdue',
-        });
-      }
-      break;
-    }
+  const invoice = event.data.object as Stripe.Invoice;
+  const subscriptionId = (invoice as any).subscription as string | null;
+  if (!subscriptionId) break;
+  const sub = await stripe.subscriptions.retrieve(subscriptionId) as any;
+  const studentId = sub.metadata?.studentId;
+  if (studentId) {
+    await db.collection('students').doc(studentId).update({
+      stripePaymentStatus: 'overdue',
+    });
+  }
+  break;
+}
 
     case 'customer.subscription.deleted': {
       const sub = event.data.object as Stripe.Subscription;
