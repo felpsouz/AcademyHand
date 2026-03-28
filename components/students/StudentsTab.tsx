@@ -9,14 +9,7 @@ import { useStudents } from '@/hooks/useStudents';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 
 export const StudentsTab: React.FC = () => {
-  const { 
-    students, 
-    loading, 
-    addStudent, 
-    updateStudent, 
-    deleteStudent, 
-    markAttendance 
-  } = useStudents();
+  const { students, loading, addStudent, updateStudent, deleteStudent, markAttendance } = useStudents();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filterBelt, setFilterBelt] = useState<string>('all');
@@ -24,15 +17,33 @@ export const StudentsTab: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
 
-  // Filtrar alunos
   const filteredStudents = students.filter(student => {
-    const matchesSearch = student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         student.email.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch =
+      student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      student.email.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesBelt = filterBelt === 'all' || student.belt === filterBelt;
     const matchesStatus = filterStatus === 'all' || student.status === filterStatus;
-    
     return matchesSearch && matchesBelt && matchesStatus;
   });
+
+  const getStripeStatus = (student: Student) => student.stripePaymentStatus ?? student.paymentStatus;
+
+  const getStatusColor = (student: Student) => {
+    const s = getStripeStatus(student);
+    if (s === 'active' || s === 'paid')  return 'bg-green-100 text-green-800';
+    if (s === 'overdue')                 return 'bg-red-100 text-red-800';
+    if (s === 'cancelled')               return 'bg-gray-100 text-gray-600';
+    return 'bg-yellow-100 text-yellow-800';
+  };
+
+  const getStatusLabel = (student: Student) => {
+    const s = getStripeStatus(student);
+    const map: Record<string, string> = {
+      active: 'Em dia', paid: 'Pago', overdue: 'Atrasado',
+      pending: 'Pendente', cancelled: 'Cancelado',
+    };
+    return map[s] ?? 'Pendente';
+  };
 
   const handleEdit = (student: Student) => {
     setEditingStudent(student);
@@ -55,23 +66,17 @@ export const StudentsTab: React.FC = () => {
   };
 
   const handleExport = () => {
-    // Criar CSV
-    const headers = ['Nome', 'Email', 'Faixa', 'Status', 'Mensalidade', 'Presenças'];
+    const headers = ['Nome', 'Email', 'Faixa', 'Status', 'Pagamento', 'Plano', 'Mensalidade', 'Presenças'];
     const rows = filteredStudents.map(s => [
-      s.name,
-      s.email,
-      s.belt,
+      s.name, s.email, s.belt,
       s.status === 'active' ? 'Ativo' : s.status === 'inactive' ? 'Inativo' : 'Suspenso',
+      getStatusLabel(s),
+      s.plano ? `${s.plano} · ${s.periodicidade}` : '-',
       `R$ ${s.monthlyFee.toFixed(2)}`,
-      s.totalAttendances.toString()
+      s.totalAttendances.toString(),
     ]);
 
-    const csv = [
-      headers.join(','),
-      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
-    ].join('\n');
-
-    // Download
+    const csv = [headers.join(','), ...rows.map(r => r.map(c => `"${c}"`).join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
@@ -103,7 +108,6 @@ export const StudentsTab: React.FC = () => {
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
               />
             </div>
-            
             <select
               value={filterBelt}
               onChange={(e) => setFilterBelt(e.target.value)}
@@ -116,7 +120,6 @@ export const StudentsTab: React.FC = () => {
               <option value="Marrom">Marrom</option>
               <option value="Preta">Preta</option>
             </select>
-
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
@@ -128,9 +131,8 @@ export const StudentsTab: React.FC = () => {
               <option value="suspended">Suspenso</option>
             </select>
           </div>
-
           <div className="flex gap-2 w-full lg:w-auto">
-            <button 
+            <button
               onClick={handleExport}
               disabled={filteredStudents.length === 0}
               className="flex-1 lg:flex-none px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -138,11 +140,8 @@ export const StudentsTab: React.FC = () => {
               <Download className="w-4 h-4" />
               Exportar
             </button>
-            <button 
-              onClick={() => {
-                setEditingStudent(null);
-                setShowModal(true);
-              }}
+            <button
+              onClick={() => { setEditingStudent(null); setShowModal(true); }}
               className="flex-1 lg:flex-none px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
             >
               <Plus className="w-4 h-4" />
@@ -153,7 +152,7 @@ export const StudentsTab: React.FC = () => {
       </div>
 
       {/* Estatísticas */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-lg shadow-sm">
           <p className="text-sm text-gray-600">Total de Alunos</p>
           <p className="text-2xl font-bold text-gray-900">{students.length}</p>
@@ -165,17 +164,25 @@ export const StudentsTab: React.FC = () => {
           </p>
         </div>
         <div className="bg-white p-4 rounded-lg shadow-sm">
-          <p className="text-sm text-gray-600">Filtrados</p>
-          <p className="text-2xl font-bold text-blue-600">{filteredStudents.length}</p>
+          <p className="text-sm text-gray-600">Em dia (Stripe)</p>
+          <p className="text-2xl font-bold text-indigo-600">
+            {students.filter(s => s.stripePaymentStatus === 'active').length}
+          </p>
+        </div>
+        <div className="bg-white p-4 rounded-lg shadow-sm">
+          <p className="text-sm text-gray-600">Inadimplentes</p>
+          <p className="text-2xl font-bold text-red-600">
+            {students.filter(s => s.stripePaymentStatus === 'overdue').length}
+          </p>
         </div>
       </div>
 
-      {/* Tabela de Alunos */}
+      {/* Tabela */}
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
         {filteredStudents.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-500">
-              {students.length === 0 
+              {students.length === 0
                 ? 'Nenhum aluno cadastrado. Clique em "Novo Aluno" para começar.'
                 : 'Nenhum aluno encontrado com os filtros aplicados.'}
             </p>
@@ -185,24 +192,13 @@ export const StudentsTab: React.FC = () => {
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Aluno
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Faixa
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Mensalidade
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Presenças
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Ações
-                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aluno</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Faixa</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pagamento</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mensalidade</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Presenças</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -223,24 +219,36 @@ export const StudentsTab: React.FC = () => {
                     </td>
                     <td className="px-4 py-4 whitespace-nowrap">
                       <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        student.belt === 'Branca' ? 'bg-gray-100 text-gray-800' :
-                        student.belt === 'Azul' ? 'bg-blue-100 text-blue-800' :
-                        student.belt === 'Roxa' ? 'bg-purple-100 text-purple-800' :
-                        student.belt === 'Marrom' ? 'bg-amber-100 text-amber-800' :
-                        'bg-black text-white'
+                        student.belt === 'Branca'  ? 'bg-gray-100 text-gray-800' :
+                        student.belt === 'Azul'    ? 'bg-blue-100 text-blue-800' :
+                        student.belt === 'Roxa'    ? 'bg-purple-100 text-purple-800' :
+                        student.belt === 'Marrom'  ? 'bg-amber-100 text-amber-800' :
+                                                     'bg-black text-white'
                       }`}>
                         {student.belt}
                       </span>
                     </td>
                     <td className="px-4 py-4 whitespace-nowrap">
                       <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        student.status === 'active' ? 'bg-green-100 text-green-800' :
+                        student.status === 'active'   ? 'bg-green-100 text-green-800' :
                         student.status === 'inactive' ? 'bg-gray-100 text-gray-800' :
-                        'bg-yellow-100 text-yellow-800'
+                                                        'bg-yellow-100 text-yellow-800'
                       }`}>
-                        {student.status === 'active' ? 'Ativo' : 
+                        {student.status === 'active' ? 'Ativo' :
                          student.status === 'inactive' ? 'Inativo' : 'Suspenso'}
                       </span>
+                    </td>
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <div className="flex flex-col gap-0.5">
+                        <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full w-fit ${getStatusColor(student)}`}>
+                          {getStatusLabel(student)}
+                        </span>
+                        {student.plano && (
+                          <span className="text-xs text-gray-400 capitalize">
+                            {student.plano} · {student.periodicidade}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
                       R$ {student.monthlyFee.toFixed(2)}
@@ -281,17 +289,13 @@ export const StudentsTab: React.FC = () => {
         )}
       </div>
 
-      {/* Modal de Aluno */}
       <Modal
         isOpen={showModal}
         onClose={handleFormSuccess}
         title={editingStudent ? 'Editar Aluno' : 'Novo Aluno'}
         size="lg"
       >
-        <StudentForm
-          student={editingStudent}
-          onSuccess={handleFormSuccess}
-        />
+        <StudentForm student={editingStudent} onSuccess={handleFormSuccess} />
       </Modal>
     </div>
   );

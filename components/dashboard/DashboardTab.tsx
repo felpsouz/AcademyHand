@@ -1,341 +1,318 @@
 'use client'
 
 import React, { useEffect, useState } from 'react';
-import { 
-  Users, DollarSign, CheckCircle2, AlertCircle, 
-  TrendingUp, CheckCircle, CreditCard, Award, 
-  History 
+import {
+  Users, DollarSign, CheckCircle2, AlertCircle,
+  TrendingUp, CreditCard, History, RefreshCw,
+  CheckCircle, Clock,
 } from 'lucide-react';
 import { firestoreService } from '@/services/firebase/firestore';
-import { Student, Transaction } from '@/types';
+import { Student } from '@/types';
+
+interface Payment {
+  id: string;
+  studentId: string;
+  amount: number;
+  description?: string;
+  status: string;
+  type: 'subscription' | 'one_time';
+  paidAt: string;
+}
 
 interface DashboardStats {
   totalStudents: number;
   activeStudents: number;
-  inactiveStudents: number;
+  stripeActive: number;
+  stripeOverdue: number;
+  stripePending: number;
   monthlyRevenue: number;
-  monthlyExpenses: number;
+  monthlySubscriptions: number;
+  monthlyOneTime: number;
   todayAttendance: number;
-  overduePayments: number;
-  revenueByCategory: {
-    monthly: number;
-    products: number;
-  };
 }
 
 export const DashboardTab: React.FC = () => {
   const [stats, setStats] = useState<DashboardStats>({
     totalStudents: 0,
     activeStudents: 0,
-    inactiveStudents: 0,
+    stripeActive: 0,
+    stripeOverdue: 0,
+    stripePending: 0,
     monthlyRevenue: 0,
-    monthlyExpenses: 0,
+    monthlySubscriptions: 0,
+    monthlyOneTime: 0,
     todayAttendance: 0,
-    overduePayments: 0,
-    revenueByCategory: {
-      monthly: 0,
-      products: 0,
-    },
   });
+  const [recentPayments, setRecentPayments] = useState<(Payment & { studentName?: string })[]>([]);
   const [loading, setLoading] = useState(true);
-  const [recentActivities, setRecentActivities] = useState<any[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Recarregar dados quando houver mudanças
-  useEffect(() => {
-    loadDashboardData();
-  }, [refreshKey]); // ✅ Atualiza quando refreshKey mudar
+  useEffect(() => { loadDashboardData(); }, [refreshKey]);
 
-  // Expor função global para recarregar dashboard
   useEffect(() => {
-    (window as any).refreshDashboard = () => {
-      setRefreshKey(prev => prev + 1);
-    };
-    return () => {
-      delete (window as any).refreshDashboard;
-    };
+    (window as any).refreshDashboard = () => setRefreshKey(prev => prev + 1);
+    return () => { delete (window as any).refreshDashboard; };
   }, []);
 
   const loadDashboardData = async () => {
     try {
       setLoading(true);
 
-      // Carregar alunos
       const students = await firestoreService.getDocuments<Student>('students');
-      
-      // Calcular estatísticas de alunos
       const activeStudents = students.filter(s => s.status === 'active');
-      const overdueStudents = students.filter(s => s.paymentStatus === 'overdue');
+      const stripeActive  = students.filter(s => s.stripePaymentStatus === 'active').length;
+      const stripeOverdue = students.filter(s => s.stripePaymentStatus === 'overdue').length;
+      const stripePending = students.filter(s => !s.stripePaymentStatus || s.stripePaymentStatus === 'pending').length;
 
-      // Carregar transações do mês atual
+      // Pagamentos do mês atual
       const now = new Date();
       const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const transactions = await firestoreService.getDocuments<Transaction>('transactions');
-      
-      const monthTransactions = transactions.filter(t => {
-        const tDate = new Date(t.createdAt);
-        return tDate >= firstDayOfMonth;
-      });
 
-      // Separar receitas e despesas
-      const monthRevenue = monthTransactions.filter(t => t.type === 'revenue');
-      const monthExpenses = monthTransactions.filter(t => t.type === 'expense');
-
-      // Calcular receita mensal
-      const monthlyRevenue = monthRevenue.reduce((sum, t) => sum + t.amount, 0);
-      
-      // Calcular despesas mensais
-      const monthlyExpenses = monthExpenses.reduce((sum, t) => sum + t.amount, 0);
-
-      // DEBUG: Ver as transações e categorias
-      console.log('📊 Receitas do mês:', monthRevenue);
-      console.log('📉 Despesas do mês:', monthExpenses);
-      console.log('💰 Receita total:', monthlyRevenue);
-      console.log('💸 Despesa total:', monthlyExpenses);
-
-      // Categorizar receitas - usando match mais flexível
-      const revenueByCategory = {
-        monthly: monthRevenue
-          .filter(t => 
-            t.category?.toLowerCase().includes('mensalidade') || 
-            t.category?.toLowerCase().includes('monthly') ||
-            t.description?.toLowerCase().includes('mensalidade')
-          )
-          .reduce((sum, t) => sum + t.amount, 0),
-        products: monthRevenue
-          .filter(t => 
-            t.category?.toLowerCase().includes('produto') || 
-            t.category?.toLowerCase().includes('product') ||
-            t.description?.toLowerCase().includes('produto')
-          )
-          .reduce((sum, t) => sum + t.amount, 0),
-      };
-
-      // Se nenhuma categoria foi identificada, coloca tudo em mensalidades
-      if (revenueByCategory.monthly === 0 && 
-          revenueByCategory.products === 0 &&
-          monthlyRevenue > 0) {
-        revenueByCategory.monthly = monthlyRevenue;
+      let payments: Payment[] = [];
+      try {
+        payments = await firestoreService.getDocuments<Payment>('payments', {
+          orderByField: 'paidAt',
+          orderDirection: 'desc',
+        });
+      } catch (err) {
+        // Coleção payments pode estar vazia ou sem permissão ainda
+        console.warn('Payments não disponível:', err);
       }
 
-      // Atividades recentes (últimas transações)
-      const recentTrans = transactions
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-        .slice(0, 3)
-        .map(t => ({
-          type: t.type,
-          name: t.studentName || 'Cliente',
-          description: t.description,
-          time: formatTime(t.createdAt),
-          amount: t.amount,
-        }));
+      const monthPayments        = payments.filter(p => new Date(p.paidAt) >= firstDayOfMonth);
+      const monthlyRevenue       = monthPayments.reduce((sum, p) => sum + p.amount, 0);
+      const monthlySubscriptions = monthPayments.filter(p => p.type === 'subscription').reduce((sum, p) => sum + p.amount, 0);
+      const monthlyOneTime       = monthPayments.filter(p => p.type === 'one_time').reduce((sum, p) => sum + p.amount, 0);
 
-      setRecentActivities(recentTrans);
+      // Presenças hoje
+      const todayStr = now.toLocaleDateString('pt-BR');
+      let todayCount = 0;
+      try {
+        const att = await firestoreService.getDocuments<any>('attendance', {
+          field: 'date', operator: '==', value: todayStr,
+        });
+        todayCount = att.length;
+      } catch (err) {
+        console.warn('Attendance não disponível:', err);
+      }
 
+      // Últimos 5 pagamentos com nome do aluno
+      const studentMap = Object.fromEntries(students.map(s => [s.id, s.name]));
+      const recent = payments.slice(0, 5).map(p => ({
+        ...p,
+        studentName: studentMap[p.studentId] ?? 'Aluno',
+      }));
+
+      setRecentPayments(recent);
       setStats({
         totalStudents: students.length,
         activeStudents: activeStudents.length,
-        inactiveStudents: students.length - activeStudents.length,
+        stripeActive,
+        stripeOverdue,
+        stripePending,
         monthlyRevenue,
-        monthlyExpenses,
-        todayAttendance: 0, // Implementar quando tiver sistema de presença
-        overduePayments: overdueStudents.length,
-        revenueByCategory,
+        monthlySubscriptions,
+        monthlyOneTime,
+        todayAttendance: todayCount,
       });
-    } catch (error) {
-      console.error('Error loading dashboard data:', error);
+    } catch (err) {
+      console.error('Erro ao carregar dashboard:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const formatTime = (dateString: string): string => {
-    const date = new Date(dateString);
+  const formatCurrency = (v: number) =>
+    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+
+  const formatTime = (dateStr: string) => {
+    const d   = new Date(dateStr);
     const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-    if (diffHours < 1) {
-      const diffMins = Math.floor(diffMs / (1000 * 60));
-      return `${diffMins}min atrás`;
-    }
-    if (diffHours < 24) {
-      return `${diffHours}h atrás`;
-    }
-    if (diffDays === 1) {
-      return 'Ontem';
-    }
-    return `${diffDays} dias atrás`;
+    const ms  = now.getTime() - d.getTime();
+    const mins  = Math.floor(ms / 60000);
+    const hours = Math.floor(ms / 3600000);
+    const days  = Math.floor(ms / 86400000);
+    if (mins  < 60)  return `${mins}min atrás`;
+    if (hours < 24)  return `${hours}h atrás`;
+    if (days  === 1) return 'Ontem';
+    return `${days} dias atrás`;
   };
 
-  const formatCurrency = (value: number): string => {
-    return new Intl.NumberFormat('pt-BR', {
-      style: 'currency',
-      currency: 'BRL',
-    }).format(value);
-  };
-
-  const calculatePercentage = (value: number, total: number): number => {
-    return total > 0 ? Math.round((value / total) * 100) : 0;
-  };
+  const pct = (v: number, total: number) => (total > 0 ? Math.round((v / total) * 100) : 0);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600"></div>
+        <div className="flex flex-col items-center gap-3">
+          <RefreshCw className="w-6 h-6 animate-spin text-red-500" />
+          <span className="text-sm text-gray-500">Carregando dashboard...</span>
+        </div>
       </div>
     );
   }
 
-  const attendancePercentage = stats.activeStudents > 0 
-    ? Math.round((stats.todayAttendance / stats.activeStudents) * 100) 
-    : 0;
-
   return (
     <div className="space-y-6">
+
+      {/* Cards principais */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-6 rounded-lg shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-gray-600">Total de Alunos</span>
-            <Users className="w-5 h-5 text-blue-600" />
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm text-gray-500">Total de Alunos</span>
+            <Users className="w-5 h-5 text-blue-500" />
           </div>
           <p className="text-3xl font-bold text-gray-900">{stats.totalStudents}</p>
-          <p className="text-sm text-gray-500 mt-1">
-            {stats.activeStudents} ativos, {stats.inactiveStudents} inativos
-          </p>
+          <p className="text-xs text-gray-400 mt-1">{stats.activeStudents} ativos</p>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-gray-600">Receita Mensal</span>
-            <DollarSign className="w-5 h-5 text-green-600" />
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm text-gray-500">Receita do Mês</span>
+            <DollarSign className="w-5 h-5 text-emerald-500" />
           </div>
-          <p className="text-3xl font-bold text-gray-900">
-            {formatCurrency(stats.monthlyRevenue)}
-          </p>
-          <p className="text-sm text-gray-500 mt-1">Este mês</p>
+          <p className="text-3xl font-bold text-gray-900">{formatCurrency(stats.monthlyRevenue)}</p>
+          <p className="text-xs text-gray-400 mt-1">via Stripe</p>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-gray-600">Presenças Hoje</span>
-            <CheckCircle2 className="w-5 h-5 text-purple-600" />
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm text-gray-500">Presenças Hoje</span>
+            <CheckCircle2 className="w-5 h-5 text-purple-500" />
           </div>
           <p className="text-3xl font-bold text-gray-900">{stats.todayAttendance}</p>
-          <p className="text-sm text-gray-500 mt-1">{attendancePercentage}% dos ativos</p>
+          <p className="text-xs text-gray-400 mt-1">
+            {pct(stats.todayAttendance, stats.activeStudents)}% dos ativos
+          </p>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-gray-600">Inadimplentes</span>
-            <AlertCircle className="w-5 h-5 text-orange-600" />
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm text-gray-500">Inadimplentes</span>
+            <AlertCircle className="w-5 h-5 text-orange-500" />
           </div>
-          <p className="text-3xl font-bold text-gray-900">{stats.overduePayments}</p>
-          <p className="text-sm text-gray-500 mt-1">Pagamentos atrasados</p>
+          <p className="text-3xl font-bold text-gray-900">{stats.stripeOverdue}</p>
+          <p className="text-xs text-gray-400 mt-1">pagamentos em atraso</p>
         </div>
       </div>
 
+      {/* Status Stripe + Receita */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow-sm">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-            <History className="w-5 h-5 text-red-600" />
-            Atividades Recentes
+
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <h3 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <CreditCard className="w-4 h-4 text-red-600" />
+            Status das Assinaturas
           </h3>
-          {recentActivities.length > 0 ? (
-            <div className="space-y-3">
-              {recentActivities.map((activity, index) => (
-                <div key={index} className="flex items-center justify-between py-2 border-b border-gray-100">
-                  <div className="flex items-center gap-3">
-                    {activity.type === 'revenue' ? (
-                      <CreditCard className="w-5 h-5 text-green-600" />
-                    ) : (
-                      <AlertCircle className="w-5 h-5 text-red-600" />
-                    )}
-                    <div>
-                      <p className="font-medium text-gray-900">{activity.name}</p>
-                      <p className="text-sm text-gray-500">{activity.description}</p>
-                    </div>
+          <div className="space-y-4">
+            {[
+              { label: 'Em dia',    value: stats.stripeActive,  color: 'bg-emerald-500', icon: <CheckCircle className="w-4 h-4 text-emerald-600" />,  textColor: 'text-emerald-700' },
+              { label: 'Em atraso', value: stats.stripeOverdue, color: 'bg-red-500',     icon: <AlertCircle className="w-4 h-4 text-red-600" />,      textColor: 'text-red-700' },
+              { label: 'Pendente',  value: stats.stripePending, color: 'bg-amber-400',   icon: <Clock className="w-4 h-4 text-amber-600" />,           textColor: 'text-amber-700' },
+            ].map(row => (
+              <div key={row.label}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-2">
+                    {row.icon}
+                    <span className="text-sm text-gray-600">{row.label}</span>
                   </div>
-                  <div className="text-right">
-                    <p className={`text-sm font-medium ${activity.type === 'revenue' ? 'text-green-600' : 'text-red-600'}`}>
-                      {activity.type === 'revenue' ? '+' : '-'}{formatCurrency(activity.amount)}
-                    </p>
-                    <span className="text-xs text-gray-500">{activity.time}</span>
-                  </div>
+                  <span className={`text-sm font-semibold ${row.textColor}`}>{row.value} alunos</span>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-gray-500 text-center py-8">Nenhuma atividade recente</p>
-          )}
+                <div className="w-full bg-gray-100 rounded-full h-1.5">
+                  <div
+                    className={`${row.color} h-1.5 rounded-full transition-all`}
+                    style={{ width: `${pct(row.value, stats.totalStudents)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow-sm">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-red-600" />
-            Resumo Financeiro do Mês
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <h3 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-red-600" />
+            Receita do Mês
           </h3>
           <div className="space-y-4">
             <div>
-              <div className="flex justify-between mb-1">
-                <span className="text-sm text-gray-600">Receitas - Mensalidades</span>
-                <span className="text-sm font-medium text-green-600">
-                  {formatCurrency(stats.revenueByCategory.monthly)}
+              <div className="flex justify-between mb-1.5">
+                <span className="text-sm text-gray-600">Mensalidades</span>
+                <span className="text-sm font-semibold text-emerald-600">
+                  {formatCurrency(stats.monthlySubscriptions)}
                 </span>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div 
-                  className="bg-green-600 h-2 rounded-full" 
-                  style={{ 
-                    width: `${calculatePercentage(stats.revenueByCategory.monthly, stats.monthlyRevenue + stats.monthlyExpenses)}%` 
-                  }}
-                ></div>
+              <div className="w-full bg-gray-100 rounded-full h-1.5">
+                <div
+                  className="bg-emerald-500 h-1.5 rounded-full"
+                  style={{ width: `${pct(stats.monthlySubscriptions, stats.monthlyRevenue || 1)}%` }}
+                />
               </div>
             </div>
+
             <div>
-              <div className="flex justify-between mb-1">
-                <span className="text-sm text-gray-600">Receitas - Produtos</span>
-                <span className="text-sm font-medium text-green-600">
-                  {formatCurrency(stats.revenueByCategory.products)}
+              <div className="flex justify-between mb-1.5">
+                <span className="text-sm text-gray-600">Cobranças avulsas</span>
+                <span className="text-sm font-semibold text-blue-600">
+                  {formatCurrency(stats.monthlyOneTime)}
                 </span>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div 
-                  className="bg-blue-600 h-2 rounded-full" 
-                  style={{ 
-                    width: `${calculatePercentage(stats.revenueByCategory.products, stats.monthlyRevenue + stats.monthlyExpenses)}%` 
-                  }}
-                ></div>
+              <div className="w-full bg-gray-100 rounded-full h-1.5">
+                <div
+                  className="bg-blue-500 h-1.5 rounded-full"
+                  style={{ width: `${pct(stats.monthlyOneTime, stats.monthlyRevenue || 1)}%` }}
+                />
               </div>
             </div>
-            <div>
-              <div className="flex justify-between mb-1">
-                <span className="text-sm text-gray-600">Despesas</span>
-                <span className="text-sm font-medium text-red-600">
-                  {formatCurrency(stats.monthlyExpenses)}
-                </span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div 
-                  className="bg-red-600 h-2 rounded-full" 
-                  style={{ 
-                    width: `${calculatePercentage(stats.monthlyExpenses, stats.monthlyRevenue + stats.monthlyExpenses)}%` 
-                  }}
-                ></div>
-              </div>
-            </div>
-            <div className="pt-3 border-t border-gray-200">
-              <div className="flex justify-between">
-                <span className="font-semibold text-gray-900">Saldo</span>
-                <span className={`font-bold ${stats.monthlyRevenue - stats.monthlyExpenses >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {formatCurrency(stats.monthlyRevenue - stats.monthlyExpenses)}
+
+            <div className="pt-3 border-t border-gray-100">
+              <div className="flex justify-between items-center">
+                <span className="font-semibold text-gray-900">Total do mês</span>
+                <span className="text-xl font-bold text-emerald-600">
+                  {formatCurrency(stats.monthlyRevenue)}
                 </span>
               </div>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Pagamentos recentes */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+        <h3 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <History className="w-4 h-4 text-red-600" />
+          Pagamentos Recentes
+        </h3>
+        {recentPayments.length === 0 ? (
+          <p className="text-gray-400 text-sm text-center py-6">
+            Nenhum pagamento registrado ainda
+          </p>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {recentPayments.map((p, i) => (
+              <div key={i} className="flex items-center justify-between py-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                    <CreditCard className="w-4 h-4 text-emerald-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{p.studentName}</p>
+                    <p className="text-xs text-gray-400">
+                      {p.type === 'subscription' ? 'Mensalidade' : p.description ?? 'Cobrança avulsa'}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-semibold text-emerald-600">
+                    +{formatCurrency(p.amount)}
+                  </p>
+                  <p className="text-xs text-gray-400">{formatTime(p.paidAt)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
     </div>
   );
 };

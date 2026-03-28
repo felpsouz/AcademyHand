@@ -13,36 +13,34 @@ interface StudentListProps {
   onPageChange: (page: number) => void;
 }
 
-// Componente inline para exibir cada aluno
 const StudentRow: React.FC<{
   student: Student;
   onEdit: (student: Student) => void;
   onDelete: (id: string) => void;
   onMarkAttendance: (id: string) => void;
 }> = ({ student, onEdit, onDelete, onMarkAttendance }) => {
-  const getPaymentStatusColor = (status: string) => {
+
+  const getPaymentStatusColor = (student: Student) => {
+    const status = student.stripePaymentStatus ?? student.paymentStatus;
     switch (status) {
-      case 'paid':
-        return 'bg-green-100 text-green-800';
-      case 'pending':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'overdue':
-        return 'bg-red-100 text-red-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
+      case 'active':
+      case 'paid':     return 'bg-green-100 text-green-800';
+      case 'overdue':  return 'bg-red-100 text-red-800';
+      case 'pending':  return 'bg-yellow-100 text-yellow-800';
+      case 'cancelled':
+      default:         return 'bg-gray-100 text-gray-800';
     }
   };
 
-  const getPaymentStatusText = (status: string) => {
+  const getPaymentStatusText = (student: Student) => {
+    const status = student.stripePaymentStatus ?? student.paymentStatus;
     switch (status) {
-      case 'paid':
-        return 'Pago';
-      case 'pending':
-        return 'Pendente';
-      case 'overdue':
-        return 'Atrasado';
-      default:
-        return status;
+      case 'active':    return 'Em dia';
+      case 'paid':      return 'Pago';
+      case 'overdue':   return 'Atrasado';
+      case 'pending':   return 'Pendente';
+      case 'cancelled': return 'Cancelado';
+      default:          return 'Pendente';
     }
   };
 
@@ -60,9 +58,16 @@ const StudentRow: React.FC<{
         </span>
       </td>
       <td className="px-4 py-4 whitespace-nowrap">
-        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getPaymentStatusColor(student.paymentStatus)}`}>
-          {getPaymentStatusText(student.paymentStatus)}
-        </span>
+        <div className="flex flex-col gap-1">
+          <span className={`px-2 py-1 text-xs font-medium rounded-full w-fit ${getPaymentStatusColor(student)}`}>
+            {getPaymentStatusText(student)}
+          </span>
+          {student.plano && (
+            <span className="text-xs text-gray-400 capitalize">
+              {student.plano} · {student.periodicidade}
+            </span>
+          )}
+        </div>
       </td>
       <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
         R$ {student.monthlyFee?.toFixed(2) || '0.00'}
@@ -94,7 +99,6 @@ const StudentRow: React.FC<{
   );
 };
 
-// Componente de Paginação inline
 const Pagination: React.FC<{
   currentPage: number;
   totalPages: number;
@@ -147,24 +151,12 @@ export const StudentList: React.FC<StudentListProps> = ({
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Aluno
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Faixa
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status Pagamento
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Mensalidade
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Presenças
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Ações
-                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aluno</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Faixa</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pagamento</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mensalidade</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Presenças</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
