@@ -1,26 +1,69 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
 
-// Intelbras SS 3532 MF W → chama este endpoint quando reconhece um rosto
-// POST https://academy-hand.vercel.app/api/facial/attendance
+// Extrai o JSON do body multipart enviado pela Intelbras
+function parseIntelbrasBody(text: string): Record<string, any> {
+  // O dispositivo envia multipart/form-data com campo "info" contendo JSON
+  const match = text.match(/name="info"[\s\S]*?Content-Length:.*?\r?\n\r?\n([\s\S]*?)(?:\r?\n--myboundary|$)/i);
+  if (match?.[1]) {
+    try {
+      return JSON.parse(match[1].trim());
+    } catch (e) {
+      console.error('Erro ao parsear JSON do campo info:', e);
+    }
+  }
+
+  // Fallback: tenta encontrar qualquer JSON no body
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    try { return JSON.parse(jsonMatch[0]); } catch {}
+  }
+
+  return {};
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const text = await req.text();
+    console.log('Intelbras raw (primeiros 500 chars):', text.substring(0, 500));
 
-    // O dispositivo Intelbras envia o UserID que foi cadastrado
-    // O UserID no dispositivo é o mesmo ID do aluno no Firestore
-    const userId     = body.UserID   ?? body.userId   ?? body.user_id;
-    const userName   = body.UserName ?? body.userName ?? body.user_name;
-    const timestamp  = body.Time     ?? body.timestamp ?? new Date().toISOString();
+    let body: Record<string, any> = {};
 
-    if (!userId) {
-      return NextResponse.json({ error: 'UserID obrigatório' }, { status: 400 });
+    const contentType = req.headers.get('content-type') ?? '';
+    if (contentType.includes('application/json')) {
+      try { body = JSON.parse(text); } catch {}
+    } else {
+      body = parseIntelbrasBody(text);
+    }
+
+    console.log('Intelbras parsed:', JSON.stringify(body).substring(0, 300));
+
+    // A Intelbras envia os eventos dentro de "Events"
+    const events = body?.Events ?? [];
+    const eventData = events[0]?.Data ?? {};
+
+    // UserID pode estar no evento ou no nível raiz
+    const userId = (
+      eventData?.UserID ??
+      eventData?.CardNo ??
+      body?.UserID ??
+      body?.CardNo
+    )?.toString();
+
+    const timestamp = body?.Time ?? eventData?.UTC
+      ? new Date((eventData.UTC ?? 0) * 1000).toISOString()
+      : new Date().toISOString();
+
+    console.log('UserID extraído:', userId);
+
+    if (!userId || userId === '') {
+      return NextResponse.json(
+        { error: 'UserID vazio — cadastre o UserID do Firestore no dispositivo', body: eventData },
+        { status: 400 }
+      );
     }
 
     const db = adminDb();
-
-    // Buscar aluno no Firestore pelo ID
     const studentDoc = await db.collection('students').doc(userId).get();
 
     if (!studentDoc.exists) {
@@ -35,7 +78,7 @@ export async function POST(req: NextRequest) {
     const dateStr = now.toLocaleDateString('pt-BR');
     const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-    // Verificar se já registrou presença hoje
+    // Evitar presença duplicada no mesmo dia
     const existingSnap = await db.collection('attendance')
       .where('studentId', '==', userId)
       .where('date', '==', dateStr)
@@ -45,28 +88,23 @@ export async function POST(req: NextRequest) {
     if (!existingSnap.empty) {
       return NextResponse.json({
         approved: true,
-        message:  'Presença já registrada hoje',
+        message: 'Presença já registrada hoje',
         studentName: student.name,
         date: dateStr,
       });
     }
 
-    // Verificar status de pagamento
     const paymentStatus = student.stripePaymentStatus ?? 'pending';
     const isActive      = student.status === 'active';
     const isPaid        = paymentStatus === 'active';
+    const approved      = isActive && isPaid;
 
-    let approved = isActive && isPaid;
-    let message  = approved ? 'Acesso liberado' : '';
+    let message = approved ? 'Acesso liberado' : '';
+    if (!isActive)                         message = 'Aluno inativo';
+    else if (paymentStatus === 'overdue')   message = 'Pagamento em atraso';
+    else if (paymentStatus === 'pending')   message = 'Pagamento pendente';
+    else if (paymentStatus === 'cancelled') message = 'Assinatura cancelada';
 
-    if (!isActive) message = 'Aluno inativo';
-    else if (!isPaid) {
-      if (paymentStatus === 'overdue')   message = 'Pagamento em atraso';
-      if (paymentStatus === 'pending')   message = 'Pagamento pendente';
-      if (paymentStatus === 'cancelled') message = 'Assinatura cancelada';
-    }
-
-    // Registrar presença independente do status (para histórico)
     await db.collection('attendance').add({
       studentId:            userId,
       studentName:          student.name,
@@ -79,11 +117,10 @@ export async function POST(req: NextRequest) {
       createdAt:            now.toISOString(),
     });
 
-    // Retorno para o dispositivo exibir na tela
     return NextResponse.json({
       approved,
       studentName: student.name,
-      belt:        student.belt   ?? '',
+      belt:        student.belt ?? '',
       paymentStatus,
       message,
     });
@@ -94,7 +131,6 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// Keepalive — o dispositivo em Modo Online faz GET periódico para verificar conexão
 export async function GET() {
   return NextResponse.json({ status: 'ok', timestamp: new Date().toISOString() });
 }
