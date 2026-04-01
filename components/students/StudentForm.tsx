@@ -1,15 +1,16 @@
 'use client'
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Student, BeltLevel, StudentStatus } from '@/types';
 import { PlanKey, Periodicidade, PLANS } from '@/lib/plans';
 import { useToast } from '@/hooks/useToast';
 import { initializeApp, getApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db } from '@/services/firebase/config';
 import { firestoreService } from '@/services/firebase/firestore';
-import { CreditCard, Copy, CheckCircle } from 'lucide-react';
+import { CreditCard, Copy, CheckCircle, Camera, User, X } from 'lucide-react';
 
 interface StudentFormProps {
   student?: Student | null;
@@ -34,6 +35,11 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
   const [isEditMode, setIsEditMode] = useState(false);
   const [generatedLink, setGeneratedLink] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
+
+  // Foto
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -63,6 +69,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
       });
       if (student.plano) setSelectedPlano(student.plano as PlanKey);
       if (student.periodicidade) setSelectedPeriodicidade(student.periodicidade as Periodicidade);
+      if ((student as any).photoUrl) setPhotoPreview((student as any).photoUrl);
     }
   }, [student]);
 
@@ -72,6 +79,46 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
       ...prev,
       [name]: name === 'monthlyFee' ? parseFloat(value) || 0 : value,
     }));
+  };
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      showToast('Selecione uma imagem válida', 'error');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('Imagem deve ter menos de 5MB', 'error');
+      return;
+    }
+
+    setPhotoFile(file);
+    const reader = new FileReader();
+    reader.onload = (e) => setPhotoPreview(e.target?.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const removePhoto = () => {
+    setPhotoFile(null);
+    setPhotoPreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const uploadPhoto = async (userId: string): Promise<string | null> => {
+    if (!photoFile) return null;
+    try {
+      const storage = getStorage();
+      const storageRef = ref(storage, `students/${userId}/photo.jpg`);
+      await uploadBytes(storageRef, photoFile);
+      const url = await getDownloadURL(storageRef);
+      return url;
+    } catch (err) {
+      console.error('Erro ao fazer upload da foto:', err);
+      return null;
+    }
   };
 
   const copyLink = () => {
@@ -95,6 +142,13 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
       setLoading(true);
 
       if (isEditMode && student) {
+        // Upload de foto se houver nova
+        let photoUrl = (student as any).photoUrl ?? null;
+        if (photoFile) {
+          const url = await uploadPhoto(student.id);
+          if (url) photoUrl = url;
+        }
+
         await firestoreService.updateDocument('students', student.id, {
           name: formData.name.trim(),
           email: formData.email.trim(),
@@ -102,6 +156,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
           belt: formData.belt,
           status: formData.status,
           monthlyFee: formData.monthlyFee,
+          ...(photoUrl ? { photoUrl } : {}),
           updatedAt: new Date().toISOString(),
         });
         showToast('Aluno atualizado com sucesso!', 'success');
@@ -137,6 +192,12 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
           }
         }
 
+        // Upload de foto
+        let photoUrl: string | null = null;
+        if (photoFile) {
+          photoUrl = await uploadPhoto(userId);
+        }
+
         const now = new Date().toISOString();
         const nextMonth = new Date();
         nextMonth.setMonth(nextMonth.getMonth() + 1);
@@ -162,11 +223,12 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
           nextPaymentDue: nextMonth.toISOString(),
           totalAttendances: 0,
           beltHistory: [{ from: 'Branca', to: formData.belt, date: now, notes: 'Cadastro inicial' }],
+          ...(photoUrl ? { photoUrl } : {}),
           createdAt: now,
           updatedAt: now,
         });
 
-        showToast(`Aluno cadastrado!`, 'success');
+        showToast('Aluno cadastrado!', 'success');
 
         // Gerar link de pagamento automaticamente
         if (gerarLinkAoCadastrar) {
@@ -258,6 +320,66 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
 
+      {/* Foto do aluno */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Foto do Aluno
+          <span className="text-xs text-gray-400 font-normal ml-1">(para reconhecimento facial)</span>
+        </label>
+        <div className="flex items-center gap-4">
+          {/* Preview */}
+          <div
+            onClick={() => !loading && fileInputRef.current?.click()}
+            className="w-20 h-20 rounded-xl border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-red-400 hover:bg-red-50 transition overflow-hidden flex-shrink-0 relative"
+          >
+            {photoPreview ? (
+              <>
+                <img src={photoPreview} alt="Preview" className="w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-black/20 opacity-0 hover:opacity-100 transition flex items-center justify-center">
+                  <Camera className="w-5 h-5 text-white" />
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col items-center gap-1 text-gray-400">
+                <User className="w-7 h-7" />
+                <Camera className="w-4 h-4" />
+              </div>
+            )}
+          </div>
+
+          <div className="flex-1">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={loading}
+              className="w-full py-2 px-3 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition text-left"
+            >
+              {photoPreview ? 'Trocar foto' : 'Selecionar foto'}
+            </button>
+            {photoPreview && (
+              <button
+                type="button"
+                onClick={removePhoto}
+                disabled={loading}
+                className="mt-1.5 flex items-center gap-1 text-xs text-red-500 hover:text-red-700"
+              >
+                <X className="w-3 h-3" />
+                Remover foto
+              </button>
+            )}
+            <p className="text-xs text-gray-400 mt-1">JPG ou PNG, máx. 5MB</p>
+          </div>
+        </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handlePhotoChange}
+          className="hidden"
+        />
+      </div>
+
       {/* Dados pessoais */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo *</label>
@@ -322,7 +444,6 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
           <span className="text-sm font-semibold text-gray-800">Plano de Assinatura</span>
         </div>
 
-        {/* Modalidade */}
         <div className="space-y-2 mb-3">
           <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Modalidade</label>
           <div className="grid grid-cols-3 gap-2">
@@ -344,7 +465,6 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
           </div>
         </div>
 
-        {/* Periodicidade */}
         <div className="space-y-2 mb-3">
           <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Periodicidade</label>
           <div className="grid grid-cols-2 gap-2">
@@ -368,7 +488,6 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
           </div>
         </div>
 
-        {/* Resumo do plano */}
         <div className={`p-3 rounded-xl border-2 ${planColors[selectedPlano]}`}>
           <div className="flex items-center justify-between">
             <div>
@@ -384,7 +503,6 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
         </div>
       </div>
 
-      {/* Opção de gerar link */}
       {!isEditMode && (
         <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200 cursor-pointer hover:bg-gray-100 transition">
           <input
