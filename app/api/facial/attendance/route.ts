@@ -3,17 +3,19 @@ import { adminDb } from '@/lib/firebase-admin';
 
 // Extrai o JSON do body multipart enviado pela Intelbras
 function parseIntelbrasBody(text: string): Record<string, any> {
-  // O dispositivo envia multipart/form-data com campo "info" contendo JSON
+  // Tenta campo "info" com Content-Length
   const match = text.match(/name="info"[\s\S]*?Content-Length:.*?\r?\n\r?\n([\s\S]*?)(?:\r?\n--myboundary|$)/i);
   if (match?.[1]) {
-    try {
-      return JSON.parse(match[1].trim());
-    } catch (e) {
-      console.error('Erro ao parsear JSON do campo info:', e);
-    }
+    try { return JSON.parse(match[1].trim()); } catch {}
   }
 
-  // Fallback: tenta encontrar qualquer JSON no body
+  // Tenta campo "info" sem Content-Length
+  const match2 = text.match(/name="info"\r?\n\r?\n([\s\S]*?)(?:\r?\n--|$)/i);
+  if (match2?.[1]) {
+    try { return JSON.parse(match2[1].trim()); } catch {}
+  }
+
+  // Fallback: qualquer JSON no body
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (jsonMatch) {
     try { return JSON.parse(jsonMatch[0]); } catch {}
@@ -25,19 +27,15 @@ function parseIntelbrasBody(text: string): Record<string, any> {
 export async function POST(req: NextRequest) {
   try {
     const text = await req.text();
-    console.log('Intelbras raw (primeiros 1000 chars):', text.substring(0, 1000));
-    console.log('Content-Type:', req.headers.get('content-type'));
+    const contentType = req.headers.get('content-type') ?? '';
 
     let body: Record<string, any> = {};
 
-    const contentType = req.headers.get('content-type') ?? '';
     if (contentType.includes('application/json')) {
       try { body = JSON.parse(text); } catch {}
     } else {
       body = parseIntelbrasBody(text);
     }
-
-    console.log('Intelbras parsed:', JSON.stringify(body).substring(0, 500));
 
     // A Intelbras envia os eventos dentro de "Events"
     const events = body?.Events ?? [];
@@ -56,11 +54,15 @@ export async function POST(req: NextRequest) {
       ? new Date(utcTime * 1000).toISOString()
       : new Date().toISOString();
 
-    console.log('UserID extraído:', userId);
-
     if (!userId || userId === '') {
+      // Retorna body bruto para debug — remover depois
       return NextResponse.json(
-        { error: 'UserID vazio — cadastre o UserID do Firestore no dispositivo', body: eventData },
+        {
+          error: 'UserID vazio',
+          contentType,
+          rawBody: text.substring(0, 1000),
+          parsed: body,
+        },
         { status: 400 }
       );
     }
@@ -128,7 +130,6 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (err: any) {
-    console.error('Erro no reconhecimento facial:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
