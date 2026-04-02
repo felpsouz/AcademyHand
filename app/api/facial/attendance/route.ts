@@ -1,21 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
 
-// Extrai o JSON do body multipart enviado pela Intelbras
 function parseIntelbrasBody(text: string): Record<string, any> {
-  // Tenta campo "info" com Content-Length
   const match = text.match(/name="info"[\s\S]*?Content-Length:.*?\r?\n\r?\n([\s\S]*?)(?:\r?\n--myboundary|$)/i);
   if (match?.[1]) {
     try { return JSON.parse(match[1].trim()); } catch {}
   }
 
-  // Tenta campo "info" sem Content-Length
   const match2 = text.match(/name="info"\r?\n\r?\n([\s\S]*?)(?:\r?\n--|$)/i);
   if (match2?.[1]) {
     try { return JSON.parse(match2[1].trim()); } catch {}
   }
 
-  // Fallback: qualquer JSON no body
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (jsonMatch) {
     try { return JSON.parse(jsonMatch[0]); } catch {}
@@ -37,11 +33,9 @@ export async function POST(req: NextRequest) {
       body = parseIntelbrasBody(text);
     }
 
-    // A Intelbras envia os eventos dentro de "Events"
     const events = body?.Events ?? [];
     const eventData = events[0]?.Data ?? {};
 
-    // UserID pode estar no evento ou no nível raiz
     const userId = (
       eventData?.UserID ??
       eventData?.CardNo ??
@@ -49,23 +43,15 @@ export async function POST(req: NextRequest) {
       body?.CardNo
     )?.toString();
 
+    // Eventos sem UserID são heartbeat/status — ignora silenciosamente
+    if (!userId || userId === '') {
+      return NextResponse.json({ status: 'ok' });
+    }
+
     const utcTime = eventData?.UTC ?? body?.UTC;
     const timestamp = utcTime
       ? new Date(utcTime * 1000).toISOString()
       : new Date().toISOString();
-
-    if (!userId || userId === '') {
-      // Retorna body bruto para debug — remover depois
-      return NextResponse.json(
-        {
-          error: 'UserID vazio',
-          contentType,
-          rawBody: text.substring(0, 1000),
-          parsed: body,
-        },
-        { status: 400 }
-      );
-    }
 
     const db = adminDb();
     const studentDoc = await db.collection('students').doc(userId).get();
