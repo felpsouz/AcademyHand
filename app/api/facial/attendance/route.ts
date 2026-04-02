@@ -25,7 +25,8 @@ function parseIntelbrasBody(text: string): Record<string, any> {
 export async function POST(req: NextRequest) {
   try {
     const text = await req.text();
-    console.log('Intelbras raw (primeiros 500 chars):', text.substring(0, 500));
+    console.log('Intelbras raw (primeiros 1000 chars):', text.substring(0, 1000));
+    console.log('Content-Type:', req.headers.get('content-type'));
 
     let body: Record<string, any> = {};
 
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
       body = parseIntelbrasBody(text);
     }
 
-    console.log('Intelbras parsed:', JSON.stringify(body).substring(0, 300));
+    console.log('Intelbras parsed:', JSON.stringify(body).substring(0, 500));
 
     // A Intelbras envia os eventos dentro de "Events"
     const events = body?.Events ?? [];
@@ -50,8 +51,9 @@ export async function POST(req: NextRequest) {
       body?.CardNo
     )?.toString();
 
-    const timestamp = body?.Time ?? eventData?.UTC
-      ? new Date((eventData.UTC ?? 0) * 1000).toISOString()
+    const utcTime = eventData?.UTC ?? body?.UTC;
+    const timestamp = utcTime
+      ? new Date(utcTime * 1000).toISOString()
       : new Date().toISOString();
 
     console.log('UserID extraído:', userId);
@@ -100,10 +102,10 @@ export async function POST(req: NextRequest) {
     const approved      = isActive && isPaid;
 
     let message = approved ? 'Acesso liberado' : '';
-    if (!isActive)                         message = 'Aluno inativo';
-    else if (paymentStatus === 'overdue')   message = 'Pagamento em atraso';
-    else if (paymentStatus === 'pending')   message = 'Pagamento pendente';
-    else if (paymentStatus === 'cancelled') message = 'Assinatura cancelada';
+    if (!isActive)                          message = 'Aluno inativo';
+    else if (paymentStatus === 'overdue')    message = 'Pagamento em atraso';
+    else if (paymentStatus === 'pending')    message = 'Pagamento pendente';
+    else if (paymentStatus === 'cancelled')  message = 'Assinatura cancelada';
 
     await db.collection('attendance').add({
       studentId:            userId,
