@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
       body = parseIntelbrasBody(text);
     }
 
-    const events = body?.Events ?? [];
+    const events    = body?.Events ?? [];
     const eventData = events[0]?.Data ?? {};
 
     const userId = (
@@ -48,13 +48,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ status: 'ok' });
     }
 
-    const utcTime = eventData?.UTC ?? body?.UTC;
+    const utcTime   = eventData?.UTC ?? body?.UTC;
     const timestamp = utcTime
       ? new Date(utcTime * 1000).toISOString()
       : new Date().toISOString();
 
-    const db = adminDb();
-    const studentDoc = await db.collection('students').doc(userId).get();
+    const db          = adminDb();
+    const studentDoc  = await db.collection('students').doc(userId).get();
 
     if (!studentDoc.exists) {
       return NextResponse.json(
@@ -63,12 +63,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const student = studentDoc.data()!;
+    const student       = studentDoc.data()!;
+    const paymentStatus = student.stripePaymentStatus ?? 'pending';
+    const isActive      = student.status === 'active';
+    const isPaid        = paymentStatus === 'active';
+
+    // ❌ Bloqueio: só continua se estiver ativo E pago
+    if (!isActive || !isPaid) {
+      let message = '';
+      if (!isActive)                          message = 'Aluno inativo';
+      else if (paymentStatus === 'overdue')    message = 'Pagamento em atraso';
+      else if (paymentStatus === 'pending')    message = 'Pagamento pendente';
+      else if (paymentStatus === 'cancelled')  message = 'Assinatura cancelada';
+
+      return NextResponse.json({
+        approved: false,
+        studentName: student.name,
+        belt: student.belt ?? '',
+        paymentStatus,
+        message,
+      });
+    }
+
+    // ✅ Aluno ativo e adimplente — verifica duplicata no dia
     const now     = new Date(timestamp);
     const dateStr = now.toLocaleDateString('pt-BR');
     const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-    // Evitar presença duplicada no mesmo dia
     const existingSnap = await db.collection('attendance')
       .where('studentId', '==', userId)
       .where('date', '==', dateStr)
@@ -84,17 +105,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const paymentStatus = student.stripePaymentStatus ?? 'pending';
-    const isActive      = student.status === 'active';
-    const isPaid        = paymentStatus === 'active';
-    const approved      = isActive && isPaid;
-
-    let message = approved ? 'Acesso liberado' : '';
-    if (!isActive)                          message = 'Aluno inativo';
-    else if (paymentStatus === 'overdue')    message = 'Pagamento em atraso';
-    else if (paymentStatus === 'pending')    message = 'Pagamento pendente';
-    else if (paymentStatus === 'cancelled')  message = 'Assinatura cancelada';
-
+    // ✅ Registra presença
     await db.collection('attendance').add({
       studentId:            userId,
       studentName:          student.name,
@@ -103,16 +114,16 @@ export async function POST(req: NextRequest) {
       confirmed:            true,
       source:               'facial',
       paymentStatusAtEntry: paymentStatus,
-      approved,
+      approved:             true,
       createdAt:            now.toISOString(),
     });
 
     return NextResponse.json({
-      approved,
+      approved:    true,
       studentName: student.name,
       belt:        student.belt ?? '',
       paymentStatus,
-      message,
+      message:     'Acesso liberado',
     });
 
   } catch (err: any) {
