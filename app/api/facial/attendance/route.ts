@@ -20,9 +20,21 @@ function parseIntelbrasBody(text: string): Record<string, any> {
   return {};
 }
 
+// Resposta no formato exigido pelo Online 2.0 da Intelbras
+function onlineResponse(auth: boolean, message: string) {
+  return NextResponse.json(
+    { code: '200', auth: auth ? 'true' : 'false', message },
+    {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const text = await req.text();
+    const text        = await req.text();
     const contentType = req.headers.get('content-type') ?? '';
 
     let body: Record<string, any> = {};
@@ -43,9 +55,9 @@ export async function POST(req: NextRequest) {
       body?.CardNo
     )?.toString();
 
-    // Eventos sem UserID são heartbeat/status — ignora silenciosamente
+    // Sem UserID — heartbeat/status, responde ok
     if (!userId || userId === '') {
-      return NextResponse.json({ status: 'ok' });
+      return NextResponse.json({ code: '200', auth: 'false', message: '' });
     }
 
     const utcTime   = eventData?.UTC ?? body?.UTC;
@@ -53,14 +65,11 @@ export async function POST(req: NextRequest) {
       ? new Date(utcTime * 1000).toISOString()
       : new Date().toISOString();
 
-    const db          = adminDb();
-    const studentDoc  = await db.collection('students').doc(userId).get();
+    const db         = adminDb();
+    const studentDoc = await db.collection('students').doc(userId).get();
 
     if (!studentDoc.exists) {
-      return NextResponse.json(
-        { approved: false, message: 'Aluno não encontrado', userId },
-        { status: 404 }
-      );
+      return onlineResponse(false, 'Aluno não encontrado');
     }
 
     const student       = studentDoc.data()!;
@@ -68,24 +77,18 @@ export async function POST(req: NextRequest) {
     const isActive      = student.status === 'active';
     const isPaid        = paymentStatus === 'active';
 
-    // ❌ Bloqueio: só continua se estiver ativo E pago
+    // ❌ Bloqueia porta — status não permite acesso
     if (!isActive || !isPaid) {
-      let message = '';
+      let message = 'Acesso negado';
       if (!isActive)                          message = 'Aluno inativo';
       else if (paymentStatus === 'overdue')    message = 'Pagamento em atraso';
       else if (paymentStatus === 'pending')    message = 'Pagamento pendente';
       else if (paymentStatus === 'cancelled')  message = 'Assinatura cancelada';
 
-      return NextResponse.json({
-        approved: false,
-        studentName: student.name,
-        belt: student.belt ?? '',
-        paymentStatus,
-        message,
-      });
+      return onlineResponse(false, message);
     }
 
-    // ✅ Aluno ativo e adimplente — verifica duplicata no dia
+    // ✅ Aluno ativo e adimplente — registra presença
     const now     = new Date(timestamp);
     const dateStr = now.toLocaleDateString('pt-BR');
     const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -96,41 +99,33 @@ export async function POST(req: NextRequest) {
       .limit(1)
       .get();
 
-    if (!existingSnap.empty) {
-      return NextResponse.json({
-        approved: true,
-        message: 'Presença já registrada hoje',
-        studentName: student.name,
-        date: dateStr,
+    if (existingSnap.empty) {
+      await db.collection('attendance').add({
+        studentId:            userId,
+        studentName:          student.name,
+        date:                 dateStr,
+        time:                 timeStr,
+        confirmed:            true,
+        source:               'facial',
+        paymentStatusAtEntry: paymentStatus,
+        approved:             true,
+        createdAt:            now.toISOString(),
       });
     }
 
-    // ✅ Registra presença
-    await db.collection('attendance').add({
-      studentId:            userId,
-      studentName:          student.name,
-      date:                 dateStr,
-      time:                 timeStr,
-      confirmed:            true,
-      source:               'facial',
-      paymentStatusAtEntry: paymentStatus,
-      approved:             true,
-      createdAt:            now.toISOString(),
-    });
-
-    return NextResponse.json({
-      approved:    true,
-      studentName: student.name,
-      belt:        student.belt ?? '',
-      paymentStatus,
-      message:     'Acesso liberado',
-    });
+    return onlineResponse(true, `Bem-vindo, ${student.name}!`);
 
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error('Erro facial attendance:', err);
+    // Em caso de erro retorna false para não abrir a porta indevidamente
+    return onlineResponse(false, 'Erro interno');
   }
 }
 
+// KeepAlive — dispositivo faz GET para verificar conexão
 export async function GET() {
-  return NextResponse.json({ status: 'ok', timestamp: new Date().toISOString() });
+  return NextResponse.json(
+    { status: 'ok', timestamp: new Date().toISOString() },
+    { headers: { 'Content-Type': 'application/json' } }
+  );
 }
