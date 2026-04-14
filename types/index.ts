@@ -122,8 +122,8 @@ export interface Attendance {
 }
 
 // Stripe
-export type PlanKey = 'gi' | 'nogi' | 'completo';
-export type Periodicidade = 'mensal' | 'trimestral';
+export type PlanKey = 'gi' | 'nogi' | 'completo' | 'kids';
+export type Periodicidade = 'mensal' | 'trimestral' | 'semestral' | 'anual';
 export type StripePaymentStatus = 'active' | 'overdue' | 'cancelled' | 'pending';
 
 // Atualizar Student com campos do Stripe
