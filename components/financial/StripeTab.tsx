@@ -25,7 +25,10 @@ const planColors: Record<PlanKey, string> = {
   gi:       'bg-blue-100 text-blue-700',
   nogi:     'bg-violet-100 text-violet-700',
   completo: 'bg-indigo-100 text-indigo-700',
+  kids:     'bg-green-100 text-green-700',
 };
+
+const periodicidades: Periodicidade[] = ['mensal', 'trimestral', 'semestral', 'anual'];
 
 export const StripeTab: React.FC = () => {
   const [students, setStudents] = useState<Student[]>([]);
@@ -175,7 +178,7 @@ export const StripeTab: React.FC = () => {
                       <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${cfg.bg} ${cfg.text} ${cfg.border}`}>
                         {cfg.icon} {cfg.label}
                       </span>
-                      {planoAtual && (
+                      {planoAtual && planColors[planoAtual] && (
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${planColors[planoAtual]}`}>
                           {PLANS[planoAtual].label} · {student.periodicidade}
                         </span>
@@ -221,9 +224,9 @@ export const StripeTab: React.FC = () => {
                 {isExpanded && !hasSubscription && (
                   <div className="border-t border-dashed border-gray-200 p-4 bg-white/60 rounded-b-xl">
                     <p className="text-xs font-medium text-gray-500 mb-3">Selecione o plano para gerar o link:</p>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                      {(['gi', 'nogi', 'completo'] as PlanKey[]).map(plano =>
-                        (['mensal', 'trimestral'] as Periodicidade[]).map(periodo => {
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                      {(Object.keys(PLANS) as PlanKey[]).map(plano =>
+                        periodicidades.map(periodo => {
                           const isLoading = generatingLink === `${student.id}-${plano}-${periodo}`;
                           return (
                             <button

@@ -20,13 +20,17 @@ const planColors: Record<PlanKey, string> = {
   gi:       'border-blue-300 bg-blue-50 text-blue-700',
   nogi:     'border-violet-300 bg-violet-50 text-violet-700',
   completo: 'border-indigo-300 bg-indigo-50 text-indigo-700',
+  kids:     'border-green-300 bg-green-50 text-green-700',
 };
 
 const planSelectedColors: Record<PlanKey, string> = {
   gi:       'border-blue-500 bg-blue-100 ring-2 ring-blue-400',
   nogi:     'border-violet-500 bg-violet-100 ring-2 ring-violet-400',
   completo: 'border-indigo-500 bg-indigo-100 ring-2 ring-indigo-400',
+  kids:     'border-green-500 bg-green-100 ring-2 ring-green-400',
 };
+
+const periodicidades: Periodicidade[] = ['mensal', 'trimestral', 'semestral', 'anual'];
 
 export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) => {
   const { showToast } = useToast();
@@ -108,7 +112,6 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
         onSuccess();
 
       } else {
-        // Criar conta Firebase Auth
         let secondaryAuth;
         let userId;
 
@@ -168,7 +171,6 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
 
         showToast(`Aluno cadastrado!`, 'success');
 
-        // Gerar link de pagamento automaticamente
         if (gerarLinkAoCadastrar) {
           const res = await fetch('/api/stripe/checkout', {
             method: 'POST',
@@ -204,7 +206,6 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
     }
   };
 
-  // Tela de link gerado
   if (generatedLink) {
     return (
       <div className="space-y-5 py-2">
@@ -258,7 +259,6 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
 
-      {/* Dados pessoais */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo *</label>
         <input type="text" name="name" value={formData.name} onChange={handleChange}
@@ -325,7 +325,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
         {/* Modalidade */}
         <div className="space-y-2 mb-3">
           <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Modalidade</label>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             {(Object.keys(PLANS) as PlanKey[]).map(plano => (
               <button
                 key={plano}
@@ -348,7 +348,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
         <div className="space-y-2 mb-3">
           <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Periodicidade</label>
           <div className="grid grid-cols-2 gap-2">
-            {(['mensal', 'trimestral'] as Periodicidade[]).map(periodo => (
+            {periodicidades.map(periodo => (
               <button
                 key={periodo}
                 type="button"
