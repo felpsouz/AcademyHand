@@ -1,49 +1,83 @@
 'use client'
 
-import React, { useState } from 'react';
-import { Search, Plus, Download, Edit2, Trash2, CheckCircle2 } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Search, Plus, Download } from 'lucide-react';
 import { Student } from '@/types';
 import { StudentForm } from './StudentForm';
+import { StudentList } from './StudentList';
 import { Modal } from '@/components/common/Modal';
 import { useStudents } from '@/hooks/useStudents';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 
+const BELTS = ['Branca', 'Azul', 'Roxa', 'Marrom', 'Preta'] as const;
+const ITEMS_PER_PAGE = 10;
+
+// ─── helpers (fonte única de verdade, espelhando StudentList) ─────────────────
+
+function getEffectiveStatus(student: Student): string {
+  const manualUntil  = (student as any).manualPaymentUntil;
+  const manualActive =
+    (student as any).manualPayment === true &&
+    manualUntil &&
+    new Date(manualUntil) > new Date();
+
+  return manualActive
+    ? 'active'
+    : (student.stripePaymentStatus ?? student.paymentStatus ?? 'pending');
+}
+
+// ─── componente ──────────────────────────────────────────────────────────────
+
 export const StudentsTab: React.FC = () => {
-  const { students, loading, addStudent, updateStudent, deleteStudent, markAttendance } = useStudents();
+  const { students, loading, addStudent, updateStudent, deleteStudent } = useStudents();
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterBelt, setFilterBelt] = useState<string>('all');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [showModal, setShowModal] = useState(false);
-  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  // filtros
+  const [searchTerm,   setSearchTerm]   = useState('');
+  const [filterBelt,   setFilterBelt]   = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
 
-  const filteredStudents = students.filter(student => {
-    const matchesSearch =
-      student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      student.email.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesBelt = filterBelt === 'all' || student.belt === filterBelt;
-    const matchesStatus = filterStatus === 'all' || student.status === filterStatus;
-    return matchesSearch && matchesBelt && matchesStatus;
-  });
+  // paginação
+  const [currentPage, setCurrentPage] = useState(1);
 
-  const getStripeStatus = (student: Student) => student.stripePaymentStatus ?? student.paymentStatus;
+  // modal de criação/edição
+  const [showModal,       setShowModal]       = useState(false);
+  const [editingStudent,  setEditingStudent]  = useState<Student | null>(null);
 
-  const getStatusColor = (student: Student) => {
-    const s = getStripeStatus(student);
-    if (s === 'active' || s === 'paid')  return 'bg-green-100 text-green-800';
-    if (s === 'overdue')                 return 'bg-red-100 text-red-800';
-    if (s === 'cancelled')               return 'bg-gray-100 text-gray-600';
-    return 'bg-yellow-100 text-yellow-800';
+  // ── filtros ─────────────────────────────────────────────────────────────────
+
+  const filteredStudents = useMemo(() => {
+    return students.filter(s => {
+      const matchesSearch =
+        s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        s.email.toLowerCase().includes(searchTerm.toLowerCase());
+
+      const matchesBelt   = filterBelt   === 'all' || s.belt   === filterBelt;
+      const matchesStatus = filterStatus === 'all' || s.status === filterStatus;
+
+      return matchesSearch && matchesBelt && matchesStatus;
+    });
+  }, [students, searchTerm, filterBelt, filterStatus]);
+
+  // ── paginação ────────────────────────────────────────────────────────────────
+
+  const totalPages    = Math.max(1, Math.ceil(filteredStudents.length / ITEMS_PER_PAGE));
+  const safePage      = Math.min(currentPage, totalPages);
+  const pagedStudents = filteredStudents.slice(
+    (safePage - 1) * ITEMS_PER_PAGE,
+    safePage       * ITEMS_PER_PAGE,
+  );
+
+  const handlePageChange = (page: number) => {
+    if (page >= 1 && page <= totalPages) setCurrentPage(page);
   };
 
-  const getStatusLabel = (student: Student) => {
-    const s = getStripeStatus(student);
-    const map: Record<string, string> = {
-      active: 'Em dia', paid: 'Pago', overdue: 'Atrasado',
-      pending: 'Pendente', cancelled: 'Cancelado',
-    };
-    return map[s] ?? 'Pendente';
-  };
+  // ── reset de página ao filtrar ───────────────────────────────────────────────
+
+  const updateSearch = (v: string)  => { setSearchTerm(v);   setCurrentPage(1); };
+  const updateBelt   = (v: string)  => { setFilterBelt(v);   setCurrentPage(1); };
+  const updateStatus = (v: string)  => { setFilterStatus(v); setCurrentPage(1); };
+
+  // ── handlers de StudentList ──────────────────────────────────────────────────
 
   const handleEdit = (student: Student) => {
     setEditingStudent(student);
@@ -56,33 +90,49 @@ export const StudentsTab: React.FC = () => {
     }
   };
 
-  const handleMarkAttendance = async (studentId: string) => {
-    await markAttendance(studentId);
-  };
-
   const handleFormSuccess = () => {
     setShowModal(false);
     setEditingStudent(null);
   };
 
+  // ── exportação CSV ───────────────────────────────────────────────────────────
+
   const handleExport = () => {
+    const statusLabel: Record<string, string> = {
+      active: 'Em dia', paid: 'Pago', overdue: 'Atrasado',
+      pending: 'Pendente', cancelled: 'Cancelado',
+    };
+
     const headers = ['Nome', 'Email', 'Faixa', 'Status', 'Pagamento', 'Plano', 'Mensalidade', 'Presenças'];
     const rows = filteredStudents.map(s => [
-      s.name, s.email, s.belt,
+      s.name,
+      s.email,
+      s.belt ?? '',
       s.status === 'active' ? 'Ativo' : s.status === 'inactive' ? 'Inativo' : 'Suspenso',
-      getStatusLabel(s),
+      statusLabel[getEffectiveStatus(s)] ?? 'Pendente',
       s.plano ? `${s.plano} · ${s.periodicidade}` : '-',
-      `R$ ${s.monthlyFee.toFixed(2)}`,
-      s.totalAttendances.toString(),
+      `R$ ${s.monthlyFee?.toFixed(2) ?? '0.00'}`,
+      String(s.totalAttendances ?? 0),
     ]);
 
-    const csv = [headers.join(','), ...rows.map(r => r.map(c => `"${c}"`).join(','))].join('\n');
+    const csv  = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
+    link.href     = URL.createObjectURL(blob);
     link.download = `alunos_${new Date().toISOString().split('T')[0]}.csv`;
     link.click();
   };
+
+  // ── estatísticas ─────────────────────────────────────────────────────────────
+
+  const stats = useMemo(() => ({
+    total:       students.length,
+    active:      students.filter(s => s.status === 'active').length,
+    paid:        students.filter(s => getEffectiveStatus(s) === 'active').length,
+    overdue:     students.filter(s => getEffectiveStatus(s) === 'overdue').length,
+  }), [students]);
+
+  // ── loading ──────────────────────────────────────────────────────────────────
 
   if (loading && students.length === 0) {
     return (
@@ -92,37 +142,39 @@ export const StudentsTab: React.FC = () => {
     );
   }
 
+  // ── render ───────────────────────────────────────────────────────────────────
+
   return (
     <div className="space-y-6">
-      {/* Filtros e Ações */}
+
+      {/* Filtros e ações */}
       <div className="bg-white p-4 rounded-lg shadow-sm">
         <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+
           <div className="flex flex-col sm:flex-row gap-2 flex-1 w-full">
             <div className="relative flex-1">
-              <Search className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+              <Search className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 placeholder="Buscar alunos..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={e => updateSearch(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
               />
             </div>
+
             <select
               value={filterBelt}
-              onChange={(e) => setFilterBelt(e.target.value)}
+              onChange={e => updateBelt(e.target.value)}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
             >
               <option value="all">Todas as Faixas</option>
-              <option value="Branca">Branca</option>
-              <option value="Azul">Azul</option>
-              <option value="Roxa">Roxa</option>
-              <option value="Marrom">Marrom</option>
-              <option value="Preta">Preta</option>
+              {BELTS.map(b => <option key={b} value={b}>{b}</option>)}
             </select>
+
             <select
               value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
+              onChange={e => updateStatus(e.target.value)}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
             >
               <option value="all">Todos Status</option>
@@ -131,6 +183,7 @@ export const StudentsTab: React.FC = () => {
               <option value="suspended">Suspenso</option>
             </select>
           </div>
+
           <div className="flex gap-2 w-full lg:w-auto">
             <button
               onClick={handleExport}
@@ -152,143 +205,31 @@ export const StudentsTab: React.FC = () => {
       </div>
 
       {/* Estatísticas */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-lg shadow-sm">
-          <p className="text-sm text-gray-600">Total de Alunos</p>
-          <p className="text-2xl font-bold text-gray-900">{students.length}</p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow-sm">
-          <p className="text-sm text-gray-600">Alunos Ativos</p>
-          <p className="text-2xl font-bold text-green-600">
-            {students.filter(s => s.status === 'active').length}
-          </p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow-sm">
-          <p className="text-sm text-gray-600">Em dia (Stripe)</p>
-          <p className="text-2xl font-bold text-indigo-600">
-            {students.filter(s => s.stripePaymentStatus === 'active').length}
-          </p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow-sm">
-          <p className="text-sm text-gray-600">Inadimplentes</p>
-          <p className="text-2xl font-bold text-red-600">
-            {students.filter(s => s.stripePaymentStatus === 'overdue').length}
-          </p>
-        </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { label: 'Total de Alunos',  value: stats.total,   color: 'text-gray-900'   },
+          { label: 'Alunos Ativos',    value: stats.active,  color: 'text-green-600'  },
+          { label: 'Em dia',           value: stats.paid,    color: 'text-indigo-600' },
+          { label: 'Inadimplentes',    value: stats.overdue, color: 'text-red-600'    },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="bg-white p-4 rounded-lg shadow-sm">
+            <p className="text-sm text-gray-600">{label}</p>
+            <p className={`text-2xl font-bold ${color}`}>{value}</p>
+          </div>
+        ))}
       </div>
 
-      {/* Tabela */}
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-        {filteredStudents.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-500">
-              {students.length === 0
-                ? 'Nenhum aluno cadastrado. Clique em "Novo Aluno" para começar.'
-                : 'Nenhum aluno encontrado com os filtros aplicados.'}
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aluno</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Faixa</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pagamento</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mensalidade</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Presenças</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredStudents.map(student => (
-                  <tr key={student.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-10 w-10 bg-red-100 rounded-full flex items-center justify-center">
-                          <span className="text-red-600 font-semibold">
-                            {student.name.charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                        <div className="ml-4">
-                          <div className="text-sm font-medium text-gray-900">{student.name}</div>
-                          <div className="text-sm text-gray-500">{student.email}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        student.belt === 'Branca'  ? 'bg-gray-100 text-gray-800' :
-                        student.belt === 'Azul'    ? 'bg-blue-100 text-blue-800' :
-                        student.belt === 'Roxa'    ? 'bg-purple-100 text-purple-800' :
-                        student.belt === 'Marrom'  ? 'bg-amber-100 text-amber-800' :
-                                                     'bg-black text-white'
-                      }`}>
-                        {student.belt}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        student.status === 'active'   ? 'bg-green-100 text-green-800' :
-                        student.status === 'inactive' ? 'bg-gray-100 text-gray-800' :
-                                                        'bg-yellow-100 text-yellow-800'
-                      }`}>
-                        {student.status === 'active' ? 'Ativo' :
-                         student.status === 'inactive' ? 'Inativo' : 'Suspenso'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      <div className="flex flex-col gap-0.5">
-                        <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full w-fit ${getStatusColor(student)}`}>
-                          {getStatusLabel(student)}
-                        </span>
-                        {student.plano && (
-                          <span className="text-xs text-gray-400 capitalize">
-                            {student.plano} · {student.periodicidade}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
-                      R$ {student.monthlyFee.toFixed(2)}
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {student.totalAttendances}
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => handleMarkAttendance(student.id)}
-                          className="text-green-600 hover:text-green-900"
-                          title="Marcar presença"
-                        >
-                          <CheckCircle2 className="w-5 h-5" />
-                        </button>
-                        <button
-                          onClick={() => handleEdit(student)}
-                          className="text-blue-600 hover:text-blue-900"
-                          title="Editar"
-                        >
-                          <Edit2 className="w-5 h-5" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(student.id)}
-                          className="text-red-600 hover:text-red-900"
-                          title="Excluir"
-                        >
-                          <Trash2 className="w-5 h-5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      {/* Delegamos tabela + paginação + pagamento manual ao StudentList */}
+      <StudentList
+        students={pagedStudents}
+        onEdit={handleEdit}
+        onDelete={handleDelete}
+        currentPage={safePage}
+        totalPages={totalPages}
+        onPageChange={handlePageChange}
+      />
 
+      {/* Modal de criação / edição */}
       <Modal
         isOpen={showModal}
         onClose={handleFormSuccess}

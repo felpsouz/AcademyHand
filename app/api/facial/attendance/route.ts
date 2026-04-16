@@ -6,29 +6,21 @@ function parseIntelbrasBody(text: string): Record<string, any> {
   if (match?.[1]) {
     try { return JSON.parse(match[1].trim()); } catch {}
   }
-
   const match2 = text.match(/name="info"\r?\n\r?\n([\s\S]*?)(?:\r?\n--|$)/i);
   if (match2?.[1]) {
     try { return JSON.parse(match2[1].trim()); } catch {}
   }
-
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (jsonMatch) {
     try { return JSON.parse(jsonMatch[0]); } catch {}
   }
-
   return {};
 }
 
-// Resposta no formato exigido pelo Online 2.0 da Intelbras
 function onlineResponse(auth: boolean, message: string) {
   return NextResponse.json(
     { code: '200', auth: auth ? 'true' : 'false', message },
-    {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    }
+    { headers: { 'Content-Type': 'application/json' } }
   );
 }
 
@@ -55,7 +47,6 @@ export async function POST(req: NextRequest) {
       body?.CardNo
     )?.toString();
 
-    // Sem UserID — heartbeat/status, responde ok
     if (!userId || userId === '') {
       return NextResponse.json({ code: '200', auth: 'false', message: '' });
     }
@@ -75,9 +66,26 @@ export async function POST(req: NextRequest) {
     const student       = studentDoc.data()!;
     const paymentStatus = student.stripePaymentStatus ?? 'pending';
     const isActive      = student.status === 'active';
-    const isPaid        = paymentStatus === 'active';
+    const isStripePaid  = paymentStatus === 'active';
 
-    // ❌ Bloqueia porta — status não permite acesso
+    // Verifica pagamento manual
+    const manualPayment      = student.manualPayment === true;
+    const manualPaymentUntil = student.manualPaymentUntil;
+    const isManualActive     = manualPayment &&
+      manualPaymentUntil &&
+      new Date(manualPaymentUntil) > new Date();
+
+    // Se pagamento manual expirou, limpa automaticamente
+    if (manualPayment && !isManualActive) {
+      await db.collection('students').doc(userId).update({
+        manualPayment:       false,
+        stripePaymentStatus: 'pending',
+      });
+    }
+
+    const isPaid = isStripePaid || isManualActive;
+
+    // ❌ Bloqueia porta
     if (!isActive || !isPaid) {
       let message = 'Acesso negado';
       if (!isActive)                          message = 'Aluno inativo';
@@ -88,7 +96,7 @@ export async function POST(req: NextRequest) {
       return onlineResponse(false, message);
     }
 
-    // ✅ Aluno ativo e adimplente — registra presença
+    // ✅ Registra presença
     const now     = new Date(timestamp);
     const dateStr = now.toLocaleDateString('pt-BR');
     const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -107,7 +115,7 @@ export async function POST(req: NextRequest) {
         time:                 timeStr,
         confirmed:            true,
         source:               'facial',
-        paymentStatusAtEntry: paymentStatus,
+        paymentStatusAtEntry: isManualActive ? 'manual' : paymentStatus,
         approved:             true,
         createdAt:            now.toISOString(),
       });
@@ -117,12 +125,10 @@ export async function POST(req: NextRequest) {
 
   } catch (err: any) {
     console.error('Erro facial attendance:', err);
-    // Em caso de erro retorna false para não abrir a porta indevidamente
     return onlineResponse(false, 'Erro interno');
   }
 }
 
-// KeepAlive — dispositivo faz GET para verificar conexão
 export async function GET() {
   return NextResponse.json(
     { status: 'ok', timestamp: new Date().toISOString() },
