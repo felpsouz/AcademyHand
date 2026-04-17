@@ -31,10 +31,8 @@ const planSelectedColors: Record<PlanKey, string> = {
 };
 
 const periodicidades: Periodicidade[] = ['mensal', 'trimestral', 'semestral', 'anual'];
-
 const NOMES_DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
-// Belt colors for visual stripe
 const beltColors: Record<string, string> = {
   'Branca':          'bg-white border border-gray-300',
   'Azul':            'bg-blue-500',
@@ -65,23 +63,23 @@ const kidsBelts = [
   'Verde-Branca', 'Verde', 'Verde-Preta',
 ];
 
-/**
- * Salva a foto localmente no dispositivo como `nome_id.ext`.
- * A foto NÃO vai ao banco de dados.
- */
-async function savePhotoLocally(file: File, studentName: string, studentId: string): Promise<void> {
-  const ext = file.name.split('.').pop() || 'jpg';
-  const safeName = studentName.trim().replace(/\s+/g, '_').toLowerCase();
-  const fileName = `${safeName}_${studentId}.${ext}`;
+async function syncWithDevice(userId: string, name: string, photoFile: File | null) {
+  try {
+    const formData = new FormData();
+    formData.append('userId', userId);
+    formData.append('name', name);
+    if (photoFile) formData.append('photo', photoFile);
 
-  const url = URL.createObjectURL(file);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+    const res = await fetch('/api/device/sync-user', {
+      method: 'POST',
+      body: formData,
+    });
+
+    const data = await res.json();
+    return data.ok === true;
+  } catch {
+    return false;
+  }
 }
 
 export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) => {
@@ -91,8 +89,6 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
   const [generatedLink, setGeneratedLink] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [isKids, setIsKids] = useState(false);
-
-  // Photo
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -202,102 +198,107 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
         });
 
         if (photoFile) {
-          await savePhotoLocally(photoFile, formData.name.trim(), student.id);
-          showToast('Foto salva no dispositivo!', 'success');
+          const ok = await syncWithDevice(student.id, formData.name.trim(), photoFile);
+          showToast(ok ? 'Foto atualizada no dispositivo!' : 'Aluno atualizado. Atualize a foto no dispositivo manualmente.', ok ? 'success' : 'warning');
+        } else {
+          showToast('Aluno atualizado com sucesso!', 'success');
         }
 
-        showToast('Aluno atualizado com sucesso!', 'success');
         onSuccess();
+        return;
+      }
 
-      } else {
-        let secondaryAuth;
-        let userId;
+      // Criar conta Firebase Auth
+      let secondaryAuth;
+      let userId;
 
-        try {
-          const secondaryApp = initializeApp({
-            apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-            authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-            projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-          }, 'Secondary');
-          secondaryAuth = getAuth(secondaryApp);
+      try {
+        const secondaryApp = initializeApp({
+          apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+          authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+          projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+        }, 'Secondary');
+        secondaryAuth = getAuth(secondaryApp);
+        const userCredential = await createUserWithEmailAndPassword(
+          secondaryAuth, formData.email.trim(), formData.password
+        );
+        userId = userCredential.user.uid;
+        await secondaryAuth.signOut();
+      } catch (error: any) {
+        if (error.code === 'app/duplicate-app') {
+          secondaryAuth = getAuth(getApp('Secondary'));
           const userCredential = await createUserWithEmailAndPassword(
             secondaryAuth, formData.email.trim(), formData.password
           );
           userId = userCredential.user.uid;
           await secondaryAuth.signOut();
-        } catch (error: any) {
-          if (error.code === 'app/duplicate-app') {
-            secondaryAuth = getAuth(getApp('Secondary'));
-            const userCredential = await createUserWithEmailAndPassword(
-              secondaryAuth, formData.email.trim(), formData.password
-            );
-            userId = userCredential.user.uid;
-            await secondaryAuth.signOut();
-          } else {
-            throw error;
-          }
-        }
-
-        const now = new Date().toISOString();
-        const nextMonth = new Date();
-        nextMonth.setMonth(nextMonth.getMonth() + 1);
-
-        await setDoc(doc(db, 'users', userId), {
-          email: formData.email.trim(),
-          name: formData.name.trim(),
-          role: 1,
-        });
-
-        await setDoc(doc(db, 'students', userId), {
-          name: formData.name.trim(),
-          email: formData.email.trim(),
-          phone: formData.phone.trim(),
-          belt: formData.belt,
-          status: formData.status,
-          monthlyFee: PLANS[selectedPlano][selectedPeriodicidade].valor,
-          paymentStatus: 'pending',
-          stripePaymentStatus: 'pending',
-          plano: selectedPlano,
-          periodicidade: selectedPeriodicidade,
-          diasPermitidos: PLANS[selectedPlano].diasPermitidos, // ← salvo automaticamente pelo plano
-          lastPayment: now,
-          nextPaymentDue: nextMonth.toISOString(),
-          totalAttendances: 0,
-          beltHistory: [{ from: 'Branca', to: formData.belt, date: now, notes: 'Cadastro inicial' }],
-          createdAt: now,
-          updatedAt: now,
-        });
-
-        if (photoFile) {
-          await savePhotoLocally(photoFile, formData.name.trim(), userId);
-          showToast('Foto salva no dispositivo!', 'success');
-        }
-
-        showToast('Aluno cadastrado!', 'success');
-
-        if (gerarLinkAoCadastrar) {
-          const res = await fetch('/api/stripe/checkout', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              mode: 'subscription',
-              studentId: userId,
-              studentEmail: formData.email.trim(),
-              studentName: formData.name.trim(),
-              plano: selectedPlano,
-              periodicidade: selectedPeriodicidade,
-            }),
-          });
-          const { url } = await res.json();
-          if (url) {
-            setGeneratedLink(url);
-            navigator.clipboard.writeText(url);
-            showToast('Link de pagamento copiado!', 'success');
-          }
         } else {
-          onSuccess();
+          throw error;
         }
       }
+
+      const now = new Date().toISOString();
+      const nextMonth = new Date();
+      nextMonth.setMonth(nextMonth.getMonth() + 1);
+
+      await setDoc(doc(db, 'users', userId), {
+        email: formData.email.trim(),
+        name: formData.name.trim(),
+        role: 1,
+      });
+
+      await setDoc(doc(db, 'students', userId), {
+        name: formData.name.trim(),
+        email: formData.email.trim(),
+        phone: formData.phone.trim(),
+        belt: formData.belt,
+        status: formData.status,
+        monthlyFee: PLANS[selectedPlano][selectedPeriodicidade].valor,
+        paymentStatus: 'pending',
+        stripePaymentStatus: 'pending',
+        plano: selectedPlano,
+        periodicidade: selectedPeriodicidade,
+        diasPermitidos: PLANS[selectedPlano].diasPermitidos,
+        lastPayment: now,
+        nextPaymentDue: nextMonth.toISOString(),
+        totalAttendances: 0,
+        beltHistory: [{ from: 'Branca', to: formData.belt, date: now, notes: 'Cadastro inicial' }],
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      // Sincronizar com dispositivo Intelbras
+      const syncOk = await syncWithDevice(userId, formData.name.trim(), photoFile);
+      if (syncOk) {
+        showToast('Aluno cadastrado e sincronizado com o dispositivo!', 'success');
+      } else {
+        showToast('Aluno cadastrado! Cadastre no dispositivo facial manualmente.', 'warning');
+      }
+
+      // Gerar link de pagamento
+      if (gerarLinkAoCadastrar) {
+        const res = await fetch('/api/stripe/checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode: 'subscription',
+            studentId: userId,
+            studentEmail: formData.email.trim(),
+            studentName: formData.name.trim(),
+            plano: selectedPlano,
+            periodicidade: selectedPeriodicidade,
+          }),
+        });
+        const { url } = await res.json();
+        if (url) {
+          setGeneratedLink(url);
+          navigator.clipboard.writeText(url);
+          showToast('Link de pagamento copiado!', 'success');
+        }
+      } else {
+        onSuccess();
+      }
+
     } catch (error: any) {
       console.error(error);
       let msg = 'Erro ao salvar aluno';
@@ -310,7 +311,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
     }
   };
 
-  // ── Success screen ──────────────────────────────────────────────────────────
+  // ── Success screen ─────────────────────────────────────────────────────────
   if (generatedLink) {
     return (
       <div className="space-y-5 py-2">
@@ -369,7 +370,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
           Foto do Aluno
-          <span className="ml-1 text-xs text-gray-400 font-normal">(salva localmente no dispositivo)</span>
+          <span className="ml-1 text-xs text-gray-400 font-normal">(enviada ao dispositivo facial)</span>
         </label>
         <div className="flex items-center gap-4">
           <div
@@ -404,7 +405,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
                 </button>
               </div>
             )}
-            <p className="text-xs text-gray-400 mt-1">A foto será baixada com o nome e ID do aluno.</p>
+            <p className="text-xs text-gray-400 mt-1">A foto será enviada automaticamente ao dispositivo.</p>
           </div>
         </div>
         <input ref={fileInputRef} type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
@@ -538,7 +539,6 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
           </div>
         </div>
 
-        {/* Resumo do plano + dias permitidos */}
         <div className={`p-3 rounded-xl border-2 ${planColors[selectedPlano]}`}>
           <div className="flex items-center justify-between mb-2">
             <div>
@@ -551,12 +551,11 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
               R$ {PLANS[selectedPlano][selectedPeriodicidade].valor.toFixed(2).replace('.', ',')}
             </p>
           </div>
-          {/* Dias de acesso */}
           <div className="flex items-center gap-2 pt-2 border-t border-current border-opacity-20">
             <CalendarDays className="w-3.5 h-3.5 opacity-70 shrink-0" />
             <div className="flex gap-1 flex-wrap">
               {NOMES_DIAS.map((nome, idx) => {
-                const permitido = PLANS[selectedPlano].diasPermitidos.includes(idx);
+                const permitido = (PLANS[selectedPlano].diasPermitidos as readonly number[]).includes(idx);
                 return (
                   <span key={idx}
                     className={`text-xs px-1.5 py-0.5 rounded font-medium ${
