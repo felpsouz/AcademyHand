@@ -31,6 +31,8 @@ function authResponse(auth: boolean, message: string) {
   });
 }
 
+const NOMES_DIAS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+
 export async function POST(req: NextRequest) {
   try {
     const text        = await req.text();
@@ -72,13 +74,26 @@ export async function POST(req: NextRequest) {
 
     if (!isActive || !isPaid) {
       let message = 'Acesso negado';
-      if (!isActive)                          message = 'Aluno inativo';
-      else if (paymentStatus === 'overdue')    message = 'Pagamento em atraso';
-      else if (paymentStatus === 'pending')    message = 'Pagamento pendente';
-      else if (paymentStatus === 'cancelled')  message = 'Assinatura cancelada';
+      if (!isActive)                         message = 'Aluno inativo';
+      else if (paymentStatus === 'overdue')   message = 'Pagamento em atraso';
+      else if (paymentStatus === 'pending')   message = 'Pagamento pendente';
+      else if (paymentStatus === 'cancelled') message = 'Assinatura cancelada';
 
       return authResponse(false, message);
     }
+
+    // ── Validação de dias permitidos pelo plano ──────────────────────────────
+    const diasPermitidos: number[] | undefined = student.diasPermitidos;
+
+    if (diasPermitidos && diasPermitidos.length > 0) {
+      const hoje = new Date().getDay(); // 0=Dom … 6=Sáb
+
+      if (!diasPermitidos.includes(hoje)) {
+        const diasLabel = diasPermitidos.map((d: number) => NOMES_DIAS[d]).join(', ');
+        return authResponse(false, `Acesso permitido apenas: ${diasLabel}`);
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
 
     // Registra presença
     const now     = new Date();
