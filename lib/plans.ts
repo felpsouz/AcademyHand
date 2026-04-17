@@ -18,34 +18,34 @@ export const PLANS: Record<PlanKey, Plan> = {
   gi: {
     label: 'Gi',
     diasPermitidos: [1, 3, 5], // Segunda, Quarta, Sexta
-    mensal:     { valor: 150 },
-    trimestral: { valor: 420 },
-    semestral:  { valor: 780 },
-    anual:      { valor: 1440 },
+    mensal:     { valor: 120 },
+    trimestral: { valor: 306 },
+    semestral:  { valor: 540 },
+    anual:      { valor: 936 },
   },
   nogi: {
     label: 'No-Gi',
     diasPermitidos: [2, 4], // Terça, Quinta
-    mensal:     { valor: 150 },
-    trimestral: { valor: 420 },
-    semestral:  { valor: 780 },
-    anual:      { valor: 1440 },
+    mensal:     { valor: 80 },
+    trimestral: { valor: 204 },
+    semestral:  { valor: 360 },
+    anual:      { valor: 624 },
   },
   kids: {
     label: 'Kids',
     diasPermitidos: [2, 4], // Terça, Quinta
-    mensal:     { valor: 120 },
-    trimestral: { valor: 330 },
-    semestral:  { valor: 600 },
-    anual:      { valor: 1100 },
+    mensal:     { valor: 100 },
+    trimestral: { valor: 255 },
+    semestral:  { valor: 450 },
+    anual:      { valor: 780 },
   },
   completo: {
     label: 'Completo',
     diasPermitidos: [0, 1, 2, 3, 4, 5, 6], // Semana toda
-    mensal:     { valor: 250 },
-    trimestral: { valor: 690 },
-    semestral:  { valor: 1260 },
-    anual:      { valor: 2280 },
+    mensal:     { valor: 150 },
+    trimestral: { valor: 382.50 },
+    semestral:  { valor: 675 },
+    anual:      { valor: 1170 },
   },
 };
 
