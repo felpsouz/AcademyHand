@@ -24,3 +24,12 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+input, textarea {
+  color: #000; /* preto */
+}
+input::placeholder,
+textarea::placeholder {
+  color: #000; /* preto */
+  opacity: 1; /* importante para não ficar apagado */
+}
