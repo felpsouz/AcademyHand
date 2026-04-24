@@ -77,7 +77,7 @@ export const LoginView: React.FC = () => {
         </form>
 
         <div className="mt-6 pt-5 border-t border-gray-100 text-center">
-          <p className="text-xs text-gray-400">Acesso restrito a administradores</p>
+          <p className="text-xs text-gray-400"></p>
         </div>
       </div>
     </div>
