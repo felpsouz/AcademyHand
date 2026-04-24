@@ -3,6 +3,10 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --input-bg: #ffffff;
+  --input-text: #171717;
+  --input-placeholder: #9ca3af;  /* cinza suave */
+  --input-border: #d1d5db;
 }
 
 @theme inline {
@@ -16,6 +20,10 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --input-bg: #1f1f1f;
+    --input-text: #ededed;
+    --input-placeholder: #6b7280;
+    --input-border: #374151;
   }
 }
 
@@ -25,11 +33,14 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-input, textarea {
-  color: #000; /* preto */
+input, textarea, select {
+  background-color: var(--input-bg);
+  color: var(--input-text);
+  border-color: var(--input-border);
 }
+
 input::placeholder,
 textarea::placeholder {
-  color: #000; /* preto */
-  opacity: 1; /* importante para não ficar apagado */
+  color: var(--input-placeholder);  /* cinza — claramente sugestão */
+  opacity: 1;
 }
