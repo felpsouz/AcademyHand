@@ -32,3 +32,9 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+input::placeholder,
+textarea::placeholder {
+  color: #9ca3af;  /* cinza suave */
+  opacity: 1;
+}
