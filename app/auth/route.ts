@@ -70,14 +70,31 @@ export async function POST(req: NextRequest) {
     const student       = studentDoc.data()!;
     const paymentStatus = student.stripePaymentStatus ?? 'pending';
     const isActive      = student.status === 'active';
-    const isPaid        = paymentStatus === 'active';
+    const isStripePaid  = paymentStatus === 'active';
+
+    // Verifica pagamento manual
+    const manualPayment      = student.manualPayment === true;
+    const manualPaymentUntil = student.manualPaymentUntil;
+    const isManualActive     = manualPayment &&
+      manualPaymentUntil &&
+      new Date(manualPaymentUntil) > new Date();
+
+    // Se pagamento manual expirou, limpa automaticamente
+    if (manualPayment && !isManualActive) {
+      await db.collection('students').doc(userId).update({
+        manualPayment:       false,
+        stripePaymentStatus: 'pending',
+      });
+    }
+
+    const isPaid = isStripePaid || isManualActive;
 
     if (!isActive || !isPaid) {
       let message = 'Acesso negado';
-      if (!isActive)                         message = 'Aluno inativo';
-      else if (paymentStatus === 'overdue')   message = 'Pagamento em atraso';
-      else if (paymentStatus === 'pending')   message = 'Pagamento pendente';
-      else if (paymentStatus === 'cancelled') message = 'Assinatura cancelada';
+      if (!isActive)                          message = 'Aluno inativo';
+      else if (paymentStatus === 'overdue')    message = 'Pagamento em atraso';
+      else if (paymentStatus === 'pending')    message = 'Pagamento pendente';
+      else if (paymentStatus === 'cancelled')  message = 'Assinatura cancelada';
 
       return authResponse(false, message);
     }
@@ -107,7 +124,7 @@ export async function POST(req: NextRequest) {
       time:                 timeStr,
       confirmed:            true,
       source:               'facial',
-      paymentStatusAtEntry: paymentStatus,
+      paymentStatusAtEntry: isManualActive ? 'manual' : paymentStatus,
       approved:             true,
       createdAt:            now.toISOString(),
     });
@@ -115,6 +132,7 @@ export async function POST(req: NextRequest) {
     return authResponse(true, `Bem-vindo, ${student.name}!`);
 
   } catch (err: any) {
+    console.error('[auth] Erro:', err);
     return authResponse(false, 'Erro interno');
   }
 }
