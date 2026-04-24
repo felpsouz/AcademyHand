@@ -416,7 +416,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
         <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo *</label>
         <input type="text" name="name" value={formData.name} onChange={handleChange}
           required disabled={loading}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm" />
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm text-gray-900" />
       </div>
 
       {/* ── Email ── */}
@@ -424,7 +424,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
         <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
         <input type="email" name="email" value={formData.email} onChange={handleChange}
           required disabled={loading || isEditMode}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm disabled:bg-gray-100" />
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm text-gray-900 disabled:bg-gray-100" />
         {isEditMode && <p className="text-xs text-gray-400 mt-1">Email não pode ser alterado</p>}
       </div>
 
@@ -434,7 +434,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
           <label className="block text-sm font-medium text-gray-700 mb-1">Senha de Acesso *</label>
           <input type="password" name="password" value={formData.password} onChange={handleChange}
             required placeholder="Mínimo 6 caracteres" disabled={loading}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm" />
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm text-gray-900" />
         </div>
       )}
 
@@ -443,7 +443,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
         <label className="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
         <input type="tel" name="phone" value={formData.phone} onChange={handleChange}
           placeholder="(00) 00000-0000" disabled={loading}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm" />
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm text-gray-900" />
       </div>
 
       {/* ── Faixa ── */}
