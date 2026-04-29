@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 
-const DEVICE_IP   = process.env.DEVICE_IP   || '192.168.0.101';
+const DEVICE_IP   = process.env.DEVICE_IP   || '192.168.2.100';
 const DEVICE_PORT = process.env.DEVICE_PORT  || '9020';
 const DEVICE_USER = process.env.DEVICE_USER  || 'admin';
 const DEVICE_PASS = process.env.DEVICE_PASS  || 'imperio@2026';

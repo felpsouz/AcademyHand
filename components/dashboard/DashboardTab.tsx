@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Users, DollarSign, CheckCircle2, AlertCircle,
   TrendingUp, CreditCard, History, RefreshCw,
-  CheckCircle, Clock,
+  CheckCircle, Clock, Eye, EyeOff,
 } from 'lucide-react';
 import { firestoreService } from '@/services/firebase/firestore';
 import { Student } from '@/types';
@@ -44,8 +44,9 @@ export const DashboardTab: React.FC = () => {
     todayAttendance: 0,
   });
   const [recentPayments, setRecentPayments] = useState<(Payment & { studentName?: string })[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [loading,     setLoading]     = useState(true);
+  const [refreshKey,  setRefreshKey]  = useState(0);
+  const [hideValues,  setHideValues]  = useState(false);
 
   useEffect(() => { loadDashboardData(); }, [refreshKey]);
 
@@ -58,14 +59,13 @@ export const DashboardTab: React.FC = () => {
     try {
       setLoading(true);
 
-      const students = await firestoreService.getDocuments<Student>('students');
+      const students      = await firestoreService.getDocuments<Student>('students');
       const activeStudents = students.filter(s => s.status === 'active');
       const stripeActive  = students.filter(s => s.stripePaymentStatus === 'active').length;
       const stripeOverdue = students.filter(s => s.stripePaymentStatus === 'overdue').length;
       const stripePending = students.filter(s => !s.stripePaymentStatus || s.stripePaymentStatus === 'pending').length;
 
-      // Pagamentos do mês atual
-      const now = new Date();
+      const now            = new Date();
       const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
       let payments: Payment[] = [];
@@ -75,7 +75,6 @@ export const DashboardTab: React.FC = () => {
           orderDirection: 'desc',
         });
       } catch (err) {
-        // Coleção payments pode estar vazia ou sem permissão ainda
         console.warn('Payments não disponível:', err);
       }
 
@@ -84,7 +83,6 @@ export const DashboardTab: React.FC = () => {
       const monthlySubscriptions = monthPayments.filter(p => p.type === 'subscription').reduce((sum, p) => sum + p.amount, 0);
       const monthlyOneTime       = monthPayments.filter(p => p.type === 'one_time').reduce((sum, p) => sum + p.amount, 0);
 
-      // Presenças hoje
       const todayStr = now.toLocaleDateString('pt-BR');
       let todayCount = 0;
       try {
@@ -96,7 +94,6 @@ export const DashboardTab: React.FC = () => {
         console.warn('Attendance não disponível:', err);
       }
 
-      // Últimos 5 pagamentos com nome do aluno
       const studentMap = Object.fromEntries(students.map(s => [s.id, s.name]));
       const recent = payments.slice(0, 5).map(p => ({
         ...p,
@@ -123,7 +120,11 @@ export const DashboardTab: React.FC = () => {
   };
 
   const formatCurrency = (v: number) =>
-    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+    hideValues
+      ? '••••••'
+      : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+
+  const maskNumber = (v: number) => hideValues ? '••' : String(v);
 
   const formatTime = (dateStr: string) => {
     const d   = new Date(dateStr);
@@ -154,6 +155,19 @@ export const DashboardTab: React.FC = () => {
   return (
     <div className="space-y-6">
 
+      {/* Header com botão olhinho */}
+      <div className="flex items-center justify-end">
+        <button
+          onClick={() => setHideValues(prev => !prev)}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm text-gray-600 hover:bg-gray-50 transition"
+        >
+          {hideValues
+            ? <><Eye className="w-4 h-4" /> Mostrar valores</>
+            : <><EyeOff className="w-4 h-4" /> Ocultar valores</>
+          }
+        </button>
+      </div>
+
       {/* Cards principais */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
@@ -161,8 +175,8 @@ export const DashboardTab: React.FC = () => {
             <span className="text-sm text-gray-500">Total de Alunos</span>
             <Users className="w-5 h-5 text-blue-500" />
           </div>
-          <p className="text-3xl font-bold text-gray-900">{stats.totalStudents}</p>
-          <p className="text-xs text-gray-400 mt-1">{stats.activeStudents} ativos</p>
+          <p className="text-3xl font-bold text-gray-900">{maskNumber(stats.totalStudents)}</p>
+          <p className="text-xs text-gray-400 mt-1">{maskNumber(stats.activeStudents)} ativos</p>
         </div>
 
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
@@ -179,9 +193,9 @@ export const DashboardTab: React.FC = () => {
             <span className="text-sm text-gray-500">Presenças Hoje</span>
             <CheckCircle2 className="w-5 h-5 text-purple-500" />
           </div>
-          <p className="text-3xl font-bold text-gray-900">{stats.todayAttendance}</p>
+          <p className="text-3xl font-bold text-gray-900">{maskNumber(stats.todayAttendance)}</p>
           <p className="text-xs text-gray-400 mt-1">
-            {pct(stats.todayAttendance, stats.activeStudents)}% dos ativos
+            {hideValues ? '••%' : `${pct(stats.todayAttendance, stats.activeStudents)}% dos ativos`}
           </p>
         </div>
 
@@ -190,7 +204,7 @@ export const DashboardTab: React.FC = () => {
             <span className="text-sm text-gray-500">Inadimplentes</span>
             <AlertCircle className="w-5 h-5 text-orange-500" />
           </div>
-          <p className="text-3xl font-bold text-gray-900">{stats.stripeOverdue}</p>
+          <p className="text-3xl font-bold text-gray-900">{maskNumber(stats.stripeOverdue)}</p>
           <p className="text-xs text-gray-400 mt-1">pagamentos em atraso</p>
         </div>
       </div>
@@ -205,9 +219,9 @@ export const DashboardTab: React.FC = () => {
           </h3>
           <div className="space-y-4">
             {[
-              { label: 'Em dia',    value: stats.stripeActive,  color: 'bg-emerald-500', icon: <CheckCircle className="w-4 h-4 text-emerald-600" />,  textColor: 'text-emerald-700' },
-              { label: 'Em atraso', value: stats.stripeOverdue, color: 'bg-red-500',     icon: <AlertCircle className="w-4 h-4 text-red-600" />,      textColor: 'text-red-700' },
-              { label: 'Pendente',  value: stats.stripePending, color: 'bg-amber-400',   icon: <Clock className="w-4 h-4 text-amber-600" />,           textColor: 'text-amber-700' },
+              { label: 'Em dia',    value: stats.stripeActive,  color: 'bg-emerald-500', icon: <CheckCircle className="w-4 h-4 text-emerald-600" />, textColor: 'text-emerald-700' },
+              { label: 'Em atraso', value: stats.stripeOverdue, color: 'bg-red-500',     icon: <AlertCircle className="w-4 h-4 text-red-600" />,     textColor: 'text-red-700' },
+              { label: 'Pendente',  value: stats.stripePending, color: 'bg-amber-400',   icon: <Clock className="w-4 h-4 text-amber-600" />,          textColor: 'text-amber-700' },
             ].map(row => (
               <div key={row.label}>
                 <div className="flex items-center justify-between mb-1.5">
@@ -215,12 +229,14 @@ export const DashboardTab: React.FC = () => {
                     {row.icon}
                     <span className="text-sm text-gray-600">{row.label}</span>
                   </div>
-                  <span className={`text-sm font-semibold ${row.textColor}`}>{row.value} alunos</span>
+                  <span className={`text-sm font-semibold ${row.textColor}`}>
+                    {maskNumber(row.value)} alunos
+                  </span>
                 </div>
                 <div className="w-full bg-gray-100 rounded-full h-1.5">
                   <div
                     className={`${row.color} h-1.5 rounded-full transition-all`}
-                    style={{ width: `${pct(row.value, stats.totalStudents)}%` }}
+                    style={{ width: hideValues ? '0%' : `${pct(row.value, stats.totalStudents)}%` }}
                   />
                 </div>
               </div>
@@ -244,7 +260,7 @@ export const DashboardTab: React.FC = () => {
               <div className="w-full bg-gray-100 rounded-full h-1.5">
                 <div
                   className="bg-emerald-500 h-1.5 rounded-full"
-                  style={{ width: `${pct(stats.monthlySubscriptions, stats.monthlyRevenue || 1)}%` }}
+                  style={{ width: hideValues ? '0%' : `${pct(stats.monthlySubscriptions, stats.monthlyRevenue || 1)}%` }}
                 />
               </div>
             </div>
@@ -259,7 +275,7 @@ export const DashboardTab: React.FC = () => {
               <div className="w-full bg-gray-100 rounded-full h-1.5">
                 <div
                   className="bg-blue-500 h-1.5 rounded-full"
-                  style={{ width: `${pct(stats.monthlyOneTime, stats.monthlyRevenue || 1)}%` }}
+                  style={{ width: hideValues ? '0%' : `${pct(stats.monthlyOneTime, stats.monthlyRevenue || 1)}%` }}
                 />
               </div>
             </div>

@@ -6,17 +6,14 @@ function parseBody(text: string): Record<string, any> {
   if (match?.[1]) {
     try { return JSON.parse(match[1].trim()); } catch {}
   }
-
   const match2 = text.match(/name="info"\r?\n\r?\n([\s\S]*?)(?:\r?\n--|$)/i);
   if (match2?.[1]) {
     try { return JSON.parse(match2[1].trim()); } catch {}
   }
-
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (jsonMatch) {
     try { return JSON.parse(jsonMatch[0]); } catch {}
   }
-
   return {};
 }
 
@@ -25,7 +22,7 @@ function authResponse(auth: boolean, message: string) {
   return new NextResponse(body, {
     status: 200,
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type':   'application/json',
       'Content-Length': Buffer.byteLength(body).toString(),
     },
   });
@@ -39,7 +36,6 @@ export async function POST(req: NextRequest) {
     const contentType = req.headers.get('content-type') ?? '';
 
     let body: Record<string, any> = {};
-
     if (contentType.includes('application/json')) {
       try { body = JSON.parse(text); } catch {}
     } else {
@@ -72,7 +68,7 @@ export async function POST(req: NextRequest) {
     const isActive      = student.status === 'active';
     const isStripePaid  = paymentStatus === 'active';
 
-    // Verifica pagamento manual
+    // ── Verifica pagamento manual ────────────────────────────────────────────
     const manualPayment      = student.manualPayment === true;
     const manualPaymentUntil = student.manualPaymentUntil;
     const isManualActive     = manualPayment &&
@@ -89,45 +85,50 @@ export async function POST(req: NextRequest) {
 
     const isPaid = isStripePaid || isManualActive;
 
+    // ── Verifica status do aluno ─────────────────────────────────────────────
     if (!isActive || !isPaid) {
       let message = 'Acesso negado';
       if (!isActive)                          message = 'Aluno inativo';
       else if (paymentStatus === 'overdue')    message = 'Pagamento em atraso';
       else if (paymentStatus === 'pending')    message = 'Pagamento pendente';
       else if (paymentStatus === 'cancelled')  message = 'Assinatura cancelada';
-
       return authResponse(false, message);
     }
 
-    // ── Validação de dias permitidos pelo plano ──────────────────────────────
+    // ── Verifica dia permitido pelo plano ────────────────────────────────────
     const diasPermitidos: number[] | undefined = student.diasPermitidos;
-
     if (diasPermitidos && diasPermitidos.length > 0) {
       const hoje = new Date().getDay(); // 0=Dom … 6=Sáb
-
       if (!diasPermitidos.includes(hoje)) {
         const diasLabel = diasPermitidos.map((d: number) => NOMES_DIAS[d]).join(', ');
-        return authResponse(false, `Acesso permitido apenas: ${diasLabel}`);
+        return authResponse(false, `Acesso apenas: ${diasLabel}`);
       }
     }
-    // ────────────────────────────────────────────────────────────────────────
 
-    // Registra presença
+    // ── Registra presença (sem duplicata no mesmo dia) ───────────────────────
     const now     = new Date();
     const dateStr = now.toLocaleDateString('pt-BR');
     const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-    await db.collection('attendance').add({
-      studentId:            userId,
-      studentName:          student.name,
-      date:                 dateStr,
-      time:                 timeStr,
-      confirmed:            true,
-      source:               'facial',
-      paymentStatusAtEntry: isManualActive ? 'manual' : paymentStatus,
-      approved:             true,
-      createdAt:            now.toISOString(),
-    });
+    const existingSnap = await db.collection('attendance')
+      .where('studentId', '==', userId)
+      .where('date', '==', dateStr)
+      .limit(1)
+      .get();
+
+    if (existingSnap.empty) {
+      await db.collection('attendance').add({
+        studentId:            userId,
+        studentName:          student.name,
+        date:                 dateStr,
+        time:                 timeStr,
+        confirmed:            true,
+        source:               'facial',
+        paymentStatusAtEntry: isManualActive ? 'manual' : paymentStatus,
+        approved:             true,
+        createdAt:            now.toISOString(),
+      });
+    }
 
     return authResponse(true, `Bem-vindo, ${student.name}!`);
 
