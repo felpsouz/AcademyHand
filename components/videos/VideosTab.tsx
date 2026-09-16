@@ -15,8 +15,8 @@ export const VideosTab: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingVideo, setEditingVideo] = useState<Video | null>(null);
 
-  // 🔥 USAR O HOOK useVideos em vez de estado local
-  const { videos, loading, error, deleteVideo, refetch } = useVideos();
+  // O hook já cuida do academyId em toda leitura/escrita
+  const { videos, loading, error, createVideo, updateVideo, deleteVideo, refetch } = useVideos();
 
   const handleEdit = (video: Video) => {
     setEditingVideo(video);
@@ -104,6 +104,8 @@ export const VideosTab: React.FC = () => {
       >
         <VideoForm
           video={editingVideo}
+          onCreate={createVideo}
+          onUpdate={updateVideo}
           onSuccess={handleFormSuccess}
         />
       </Modal>

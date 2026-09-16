@@ -13,6 +13,7 @@ interface StudentListProps {
   currentPage: number;
   totalPages: number;
   onPageChange: (page: number) => void;
+  usaGraduacao?: boolean;
 }
 
 const DURATIONS = [
@@ -105,7 +106,8 @@ const StudentRow: React.FC<{
   onEdit: (student: Student) => void;
   onDelete: (id: string) => void;
   onConfirmPayment: (student: Student) => void;
-}> = ({ student, onEdit, onDelete, onConfirmPayment }) => {
+  usaGraduacao: boolean;
+}> = ({ student, onEdit, onDelete, onConfirmPayment, usaGraduacao }) => {
 
   const rawStatus   = student.stripePaymentStatus ?? student.paymentStatus ?? 'pending';
   const manualUntil = (student as any).manualPaymentUntil;
@@ -149,18 +151,20 @@ const StudentRow: React.FC<{
         </div>
       </td>
 
-      {/* Faixa */}
-      <td className="px-4 py-4 whitespace-nowrap">
-        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-          student.belt === 'Branca' ? 'bg-gray-100 text-gray-800' :
-          student.belt === 'Azul'   ? 'bg-blue-100 text-blue-800' :
-          student.belt === 'Roxa'   ? 'bg-purple-100 text-purple-800' :
-          student.belt === 'Marrom' ? 'bg-amber-100 text-amber-800' :
-                                      'bg-black text-white'
-        }`}>
-          {student.belt || 'Não definida'}
-        </span>
-      </td>
+      {/* Faixa — só aparece se a academia usa sistema de graduação */}
+      {usaGraduacao && (
+        <td className="px-4 py-4 whitespace-nowrap">
+          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+            student.belt === 'Branca' ? 'bg-gray-100 text-gray-800' :
+            student.belt === 'Azul'   ? 'bg-blue-100 text-blue-800' :
+            student.belt === 'Roxa'   ? 'bg-purple-100 text-purple-800' :
+            student.belt === 'Marrom' ? 'bg-amber-100 text-amber-800' :
+                                        'bg-black text-white'
+          }`}>
+            {student.belt || 'Não definida'}
+          </span>
+        </td>
+      )}
 
       {/* Pagamento */}
       <td className="px-4 py-4 whitespace-nowrap">
@@ -268,6 +272,7 @@ export const StudentList: React.FC<StudentListProps> = ({
   currentPage,
   totalPages,
   onPageChange,
+  usaGraduacao = true,
 }) => {
   const [paymentStudent, setPaymentStudent] = useState<Student | null>(null);
   const [toast, setToast]                   = useState<string | null>(null);
@@ -329,7 +334,9 @@ export const StudentList: React.FC<StudentListProps> = ({
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aluno</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Faixa</th>
+                {usaGraduacao && (
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Faixa</th>
+                )}
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pagamento</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mensalidade</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Presenças</th>
@@ -344,6 +351,7 @@ export const StudentList: React.FC<StudentListProps> = ({
                   onEdit={onEdit}
                   onDelete={onDelete}
                   onConfirmPayment={setPaymentStudent}
+                  usaGraduacao={usaGraduacao}
                 />
               ))}
             </tbody>

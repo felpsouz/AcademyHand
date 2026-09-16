@@ -7,6 +7,7 @@ import { StudentForm } from './StudentForm';
 import { StudentList } from './StudentList';
 import { Modal } from '@/components/common/Modal';
 import { useStudents } from '@/hooks/useStudents';
+import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 
 const BELTS = ['Branca', 'Azul', 'Roxa', 'Marrom', 'Preta'] as const;
@@ -30,6 +31,8 @@ function getEffectiveStatus(student: Student): string {
 
 export const StudentsTab: React.FC = () => {
   const { students, loading, addStudent, updateStudent, deleteStudent } = useStudents();
+  const { userData } = useAuth();
+  const usaGraduacao = userData?.usaGraduacao !== false;
 
   // filtros
   const [searchTerm,   setSearchTerm]   = useState('');
@@ -51,12 +54,12 @@ export const StudentsTab: React.FC = () => {
         s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         s.email.toLowerCase().includes(searchTerm.toLowerCase());
 
-      const matchesBelt   = filterBelt   === 'all' || s.belt   === filterBelt;
+      const matchesBelt   = !usaGraduacao || filterBelt === 'all' || s.belt === filterBelt;
       const matchesStatus = filterStatus === 'all' || s.status === filterStatus;
 
       return matchesSearch && matchesBelt && matchesStatus;
     });
-  }, [students, searchTerm, filterBelt, filterStatus]);
+  }, [students, searchTerm, filterBelt, filterStatus, usaGraduacao]);
 
   // ── paginação ────────────────────────────────────────────────────────────────
 
@@ -103,17 +106,22 @@ export const StudentsTab: React.FC = () => {
       pending: 'Pendente', cancelled: 'Cancelado',
     };
 
-    const headers = ['Nome', 'Email', 'Faixa', 'Status', 'Pagamento', 'Plano', 'Mensalidade', 'Presenças'];
-    const rows = filteredStudents.map(s => [
-      s.name,
-      s.email,
-      s.belt ?? '',
-      s.status === 'active' ? 'Ativo' : s.status === 'inactive' ? 'Inativo' : 'Suspenso',
-      statusLabel[getEffectiveStatus(s)] ?? 'Pendente',
-      s.plano ? `${s.plano} · ${s.periodicidade}` : '-',
-      `R$ ${s.monthlyFee?.toFixed(2) ?? '0.00'}`,
-      String(s.totalAttendances ?? 0),
-    ]);
+    const headers = usaGraduacao
+      ? ['Nome', 'Email', 'Faixa', 'Status', 'Pagamento', 'Plano', 'Mensalidade', 'Presenças']
+      : ['Nome', 'Email', 'Status', 'Pagamento', 'Plano', 'Mensalidade', 'Presenças'];
+
+    const rows = filteredStudents.map(s => {
+      const base = [s.name, s.email];
+      if (usaGraduacao) base.push(s.belt ?? '');
+      base.push(
+        s.status === 'active' ? 'Ativo' : s.status === 'inactive' ? 'Inativo' : 'Suspenso',
+        statusLabel[getEffectiveStatus(s)] ?? 'Pendente',
+        s.plano ? `${s.plano} · ${s.periodicidade}` : '-',
+        `R$ ${s.monthlyFee?.toFixed(2) ?? '0.00'}`,
+        String(s.totalAttendances ?? 0),
+      );
+      return base;
+    });
 
     const csv  = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -163,14 +171,16 @@ export const StudentsTab: React.FC = () => {
               />
             </div>
 
-            <select
-              value={filterBelt}
-              onChange={e => updateBelt(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
-            >
-              <option value="all">Todas as Faixas</option>
-              {BELTS.map(b => <option key={b} value={b}>{b}</option>)}
-            </select>
+            {usaGraduacao && (
+              <select
+                value={filterBelt}
+                onChange={e => updateBelt(e.target.value)}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
+              >
+                <option value="all">Todas as Faixas</option>
+                {BELTS.map(b => <option key={b} value={b}>{b}</option>)}
+              </select>
+            )}
 
             <select
               value={filterStatus}
@@ -227,6 +237,7 @@ export const StudentsTab: React.FC = () => {
         currentPage={safePage}
         totalPages={totalPages}
         onPageChange={handlePageChange}
+        usaGraduacao={usaGraduacao}
       />
 
       {/* Modal de criação / edição */}

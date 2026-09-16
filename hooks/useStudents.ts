@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { Student, StudentStatus, BeltLevel } from '@/types';
 import { firestoreService } from '@/services/firebase/firestore';
 import { useToast } from './useToast';
+import { useAuth } from '@/contexts/AuthContext';
 import { validateEmail, validatePhone } from '@/utils/validators';
 
 export const useStudents = () => {
@@ -11,6 +12,8 @@ export const useStudents = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { showToast } = useToast();
+  const { userData } = useAuth();
+  const academyId = userData?.academyId;
 
   // Função helper para atualizar dashboard
   const refreshDashboard = () => {
@@ -19,16 +22,22 @@ export const useStudents = () => {
     }
   };
 
-  // Carregar alunos
+  // Carregar alunos (sempre filtrado pela academia do usuário logado)
   const loadStudents = useCallback(async () => {
+    if (!academyId) {
+      setStudents([]);
+      return [];
+    }
+
     try {
       setLoading(true);
       setError(null);
       
-      const data = await firestoreService.getDocuments<Student>('students', {
-        orderByField: 'name',
-        orderDirection: 'asc'
-      });
+      const data = await firestoreService.getDocuments<Student>(
+        'students',
+        { field: 'academyId', operator: '==', value: academyId },
+        { orderByField: 'name', orderDirection: 'asc' }
+      );
       
       setStudents(data);
       return data;
@@ -41,10 +50,14 @@ export const useStudents = () => {
     } finally {
       setLoading(false);
     }
-  }, [showToast]);
+  }, [academyId, showToast]);
 
   // Adicionar aluno
   const addStudent = useCallback(async (studentData: Partial<Student>) => {
+    if (!academyId) {
+      throw new Error('Academia não identificada. Faça login novamente.');
+    }
+
     try {
       setLoading(true);
       setError(null);
@@ -62,12 +75,11 @@ export const useStudents = () => {
         throw new Error('Telefone inválido (use formato: (00) 00000-0000)');
       }
 
-      // Verificar se email já existe
-      const existingStudents = await firestoreService.getDocuments<Student>('students', {
-        field: 'email',
-        operator: '==',
-        value: studentData.email.toLowerCase()
-      });
+      // Verificar se email já existe NESSA academia
+      const existingStudents = await firestoreService.getDocuments<Student>('students', [
+        { field: 'academyId', operator: '==', value: academyId },
+        { field: 'email', operator: '==', value: studentData.email.toLowerCase() },
+      ]);
 
       if (existingStudents.length > 0) {
         throw new Error('Email já cadastrado');
@@ -76,6 +88,7 @@ export const useStudents = () => {
       const now = new Date().toISOString();
       
       const newStudentData: any = {
+        academyId,
         name: studentData.name.trim(),
         email: studentData.email.toLowerCase().trim(),
         belt: studentData.belt || 'Branca',
@@ -103,7 +116,6 @@ export const useStudents = () => {
       
       setStudents(prev => [...prev, newStudent].sort((a, b) => a.name.localeCompare(b.name)));
       
-      // ✅ Atualizar dashboard
       refreshDashboard();
       
       showToast('Aluno cadastrado com sucesso!', 'success');
@@ -117,7 +129,7 @@ export const useStudents = () => {
     } finally {
       setLoading(false);
     }
-  }, [showToast]);
+  }, [academyId, showToast]);
 
   // Atualizar aluno
   const updateStudent = useCallback(async (id: string, updates: Partial<Student>) => {
@@ -157,7 +169,7 @@ export const useStudents = () => {
 
       if (updates.belt && updates.belt !== student.belt) {
         updatedData.beltHistory = [
-          ...student.beltHistory,
+          ...(student.beltHistory ?? []),
           {
             from: student.belt,
             to: updates.belt,
@@ -173,7 +185,6 @@ export const useStudents = () => {
         s.id === id ? { ...s, ...updatedData } : s
       ).sort((a, b) => a.name.localeCompare(b.name)));
       
-      // ✅ Atualizar dashboard
       refreshDashboard();
       
       showToast('Aluno atualizado com sucesso!', 'success');
@@ -188,13 +199,12 @@ export const useStudents = () => {
     }
   }, [students, showToast]);
 
-  // ✅ Excluir aluno - CORRIGIDO para deletar de users E students
+  // Excluir aluno - deleta de users E students
   const deleteStudent = useCallback(async (id: string) => {
     try {
       setLoading(true);
       setError(null);
       
-      // 1. Deletar de USERS (para remover login)
       try {
         await firestoreService.deleteDocument('users', id);
         console.log('✅ User document deleted:', id);
@@ -202,17 +212,11 @@ export const useStudents = () => {
         console.warn('User document not found or already deleted:', id);
       }
       
-      // 2. Deletar de STUDENTS (dados do aluno)
       await firestoreService.deleteDocument('students', id);
       console.log('✅ Student document deleted:', id);
       
-      // NOTA: Não é possível deletar do Firebase Auth pelo client-side
-      // O usuário ainda existirá no Authentication, mas sem dados no Firestore
-      // Para deletar completamente, seria necessário Firebase Admin SDK no backend
-      
       setStudents(prev => prev.filter(s => s.id !== id));
       
-      // ✅ Atualizar dashboard
       refreshDashboard();
       
       showToast('Aluno removido com sucesso', 'info');
@@ -229,6 +233,10 @@ export const useStudents = () => {
 
   // Marcar presença
   const markAttendance = useCallback(async (studentId: string) => {
+    if (!academyId) {
+      throw new Error('Academia não identificada. Faça login novamente.');
+    }
+
     try {
       setLoading(true);
       
@@ -246,6 +254,7 @@ export const useStudents = () => {
       }
 
       const attendanceData = {
+        academyId,
         studentId,
         studentName: student.name,
         date: today,
@@ -267,7 +276,6 @@ export const useStudents = () => {
         s.id === studentId ? { ...s, totalAttendances: newTotal, updatedAt } : s
       ));
 
-      // ✅ Atualizar dashboard
       refreshDashboard();
 
       showToast('Presença confirmada!', 'success');
@@ -279,7 +287,7 @@ export const useStudents = () => {
     } finally {
       setLoading(false);
     }
-  }, [students, showToast]);
+  }, [academyId, students, showToast]);
 
   const getStudentById = useCallback((id: string): Student | undefined => {
     return students.find(s => s.id === id);

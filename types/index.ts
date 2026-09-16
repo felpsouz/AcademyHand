@@ -52,7 +52,8 @@ export interface Student {
   name: string;
   email: string;
   phone?: string;
-  belt: BeltLevel;
+  // Opcional: academias sem sistema de graduação (ex: natação) não usam faixa
+  belt?: BeltLevel;
   status: StudentStatus;
   paymentStatus: PaymentStatus;
   monthlyFee: number;
@@ -61,7 +62,8 @@ export interface Student {
   createdAt: string;
   updatedAt: string;
   totalAttendances: number;
-  beltHistory: BeltChange[];
+  // Opcional pelo mesmo motivo que belt
+  beltHistory?: BeltChange[];
   // Stripe
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
@@ -105,8 +107,9 @@ export interface Video {
   description: string;
   url: string;
   thumbnailUrl?: string;
-  belt: BeltLevel;
-  category: string;
+  // Opcional: nem toda academia organiza vídeos por faixa/categoria
+  belt?: BeltLevel;
+  category?: string;
   duration?: number;
   createdAt: string;
   updatedAt: string;

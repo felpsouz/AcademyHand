@@ -9,6 +9,7 @@ import { StudentsTab } from '@/components/students/StudentsTab';
 import { VideosTab } from '@/components/videos/VideosTab';
 import { FinancialTab } from '@/components/financial/FinancialTab';
 import { TabType } from '@/types';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface AdminViewProps {
   onLogout: () => void;
@@ -16,6 +17,7 @@ interface AdminViewProps {
 
 export const AdminView: React.FC<AdminViewProps> = ({ onLogout }) => {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  const { userData } = useAuth();
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -34,7 +36,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ onLogout }) => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Header title="Império Jiu-Jitsu" subtitle="Painel Administrativo" onLogout={onLogout} />
+      <Header
+        title={userData?.academyName || 'Minha Academia'}
+        subtitle="Painel Administrativo"
+        onLogout={onLogout}
+      />
       <main className="max-w-7xl mx-auto px-4 py-8">
         <NavigationTabs activeTab={activeTab} onTabChange={setActiveTab} />
         {renderTabContent()}

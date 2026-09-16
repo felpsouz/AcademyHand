@@ -6,6 +6,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { Invoice, CreateInvoiceData, UpdateInvoiceData, InvoiceStatus, InvoicePaymentMethod } from '@/types';
 import { firestoreService } from '@/services/firebase/firestore';
 import { useToast } from './useToast';
+import { useAuth } from '@/contexts/AuthContext';
 
 const MONTHS = {
   '01': 'Janeiro', '02': 'Fevereiro', '03': 'Março', '04': 'Abril',
@@ -18,42 +19,41 @@ export const useInvoices = (studentId?: string) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { showToast } = useToast();
+  const { userData } = useAuth();
+  const academyId = userData?.academyId;
 
-  // Função helper para atualizar dashboard
   const refreshDashboard = () => {
     if (typeof window !== 'undefined' && (window as any).refreshDashboard) {
       (window as any).refreshDashboard();
     }
   };
 
-  // Carregar faturas
+  // Carregar faturas (sempre filtrado pela academia do usuário logado)
   const loadInvoices = useCallback(async () => {
+    if (!academyId) {
+      setInvoices([]);
+      return [];
+    }
+
     try {
       setLoading(true);
       setError(null);
 
-      let data: Invoice[];
-      
-      if (studentId) {
-        // Carregar faturas de um aluno específico
-        data = await firestoreService.getDocuments<Invoice>('invoices', {
-          field: 'studentId',
-          operator: '==',
-          value: studentId,
-          orderByField: 'year',
-          orderDirection: 'desc'
-        });
-      } else {
-        // Carregar todas as faturas
-        data = await firestoreService.getDocuments<Invoice>('invoices', {
-          orderByField: 'year',
-          orderDirection: 'desc'
-        });
-      }
+      const filtros = studentId
+        ? [
+            { field: 'academyId', operator: '==', value: academyId },
+            { field: 'studentId', operator: '==', value: studentId },
+          ]
+        : [{ field: 'academyId', operator: '==', value: academyId }];
+
+      const data = await firestoreService.getDocuments<Invoice>(
+        'invoices',
+        filtros,
+        { orderByField: 'year', orderDirection: 'desc' }
+      );
 
       // Atualizar status de faturas atrasadas
       const today = new Date();
-      const todayStr = today.toLocaleDateString('pt-BR');
       
       const updatedInvoices = await Promise.all(data.map(async (invoice) => {
         if (invoice.status === 'pending') {
@@ -61,7 +61,6 @@ export const useInvoices = (studentId?: string) => {
           const dueDate = new Date(dueYear, dueMonth - 1, dueDay);
           
           if (dueDate < today) {
-            // Atualizar status para overdue
             await firestoreService.updateDocument('invoices', invoice.id, {
               status: 'overdue' as InvoiceStatus,
               updatedAt: new Date().toISOString()
@@ -83,10 +82,14 @@ export const useInvoices = (studentId?: string) => {
     } finally {
       setLoading(false);
     }
-  }, [studentId, showToast]);
+  }, [academyId, studentId, showToast]);
 
   // Adicionar fatura
   const addInvoice = useCallback(async (data: CreateInvoiceData) => {
+    if (!academyId) {
+      throw new Error('Academia não identificada. Faça login novamente.');
+    }
+
     try {
       setLoading(true);
       setError(null);
@@ -98,6 +101,7 @@ export const useInvoices = (studentId?: string) => {
       const now = new Date().toISOString();
       
       const invoiceData: any = {
+        academyId,
         studentId: data.studentId,
         studentName: data.studentName,
         month: data.month,
@@ -126,7 +130,7 @@ export const useInvoices = (studentId?: string) => {
     } finally {
       setLoading(false);
     }
-  }, [showToast]);
+  }, [academyId, showToast]);
 
   // Atualizar fatura
   const updateInvoice = useCallback(async (id: string, updates: UpdateInvoiceData) => {
@@ -199,7 +203,6 @@ export const useInvoices = (studentId?: string) => {
       const invoice = invoices.find(inv => inv.id === id);
       if (!invoice) throw new Error('Fatura não encontrada');
 
-      // Verificar se está atrasada
       const [dueDay, dueMonth, dueYear] = invoice.dueDate.split('/').map(Number);
       const dueDate = new Date(dueYear, dueMonth - 1, dueDay);
       const today = new Date();

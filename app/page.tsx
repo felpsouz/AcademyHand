@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { LoginView } from '@/components/auth/LoginView';
 import { AdminView } from '@/components/admin/AdminView';
 import { StudentView } from '@/components/student/StudentView';
+import { MasterView } from '@/components/master/MasterView';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 
 export default function Home() {
@@ -23,6 +24,10 @@ export default function Home() {
 
   if (!user || !userData) {
     return <LoginView />;
+  }
+
+  if (userData.role === 2) {
+    return <MasterView onLogout={handleLogout} />;
   }
 
   if (userData.role === 0) {

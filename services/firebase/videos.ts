@@ -6,6 +6,7 @@ import {
   doc, 
   getDocs,
   query,
+  where,
   orderBy,
   serverTimestamp 
 } from 'firebase/firestore';
@@ -14,7 +15,7 @@ import { Video } from '@/types';
 
 export const videoService = {
   // Criar novo vídeo
-  async createVideo(data: {
+  async createVideo(academyId: string, data: {
     title: string;
     description: string;
     url: string;
@@ -25,6 +26,7 @@ export const videoService = {
       
       const docRef = await addDoc(videosRef, {
         ...data,
+        academyId,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -67,11 +69,15 @@ export const videoService = {
     }
   },
 
-  // Buscar todos os vídeos
-  async getAllVideos(): Promise<Video[]> {
+  // Buscar todos os vídeos DA ACADEMIA do usuário logado
+  async getAllVideos(academyId: string): Promise<Video[]> {
     try {
       const videosRef = collection(db, 'videos');
-      const q = query(videosRef, orderBy('createdAt', 'desc'));
+      const q = query(
+        videosRef,
+        where('academyId', '==', academyId),
+        orderBy('createdAt', 'desc')
+      );
       const snapshot = await getDocs(q);
       
       return snapshot.docs.map(doc => ({

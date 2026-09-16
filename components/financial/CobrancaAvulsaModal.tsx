@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Student } from '@/types';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface Props {
   student: Student;
@@ -14,6 +15,9 @@ const PRODUTOS_PREDEFINIDOS = [
 ];
 
 export const CobrancaAvulsaModal: React.FC<Props> = ({ student, onClose }) => {
+  const { userData } = useAuth();
+  const academyId = userData?.academyId;
+
   const [tipo, setTipo] = useState<'predefinido' | 'livre'>('predefinido');
   const [produtoIdx, setProdutoIdx] = useState(0);
   const [descricao, setDescricao] = useState('');
@@ -21,6 +25,11 @@ export const CobrancaAvulsaModal: React.FC<Props> = ({ student, onClose }) => {
   const [loading, setLoading] = useState(false);
 
   const handleGerar = async () => {
+    if (!academyId) {
+      alert('Academia não identificada. Faça login novamente.');
+      return;
+    }
+
     setLoading(true);
     try {
       const description = tipo === 'predefinido'
@@ -41,6 +50,7 @@ export const CobrancaAvulsaModal: React.FC<Props> = ({ student, onClose }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mode: 'payment',
+          academyId,
           studentId: student.id,
           studentEmail: student.email,
           studentName: student.name,

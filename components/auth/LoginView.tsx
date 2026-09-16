@@ -1,6 +1,6 @@
 'use client'
 import React, { useState } from 'react';
-import { LogIn } from 'lucide-react';
+import { LogIn, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 export const LoginView: React.FC = () => {
@@ -25,17 +25,14 @@ export const LoginView: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-red-900 to-black flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
 
-        {/* Logo */}
+        {/* Logo — como o login é compartilhado entre todas as academias,
+            o nome da academia só aparece DEPOIS do login (no cabeçalho do painel) */}
         <div className="text-center mb-8">
-          <div className="mx-auto mb-4 w-28 h-28 flex items-center justify-center">
-            <img
-              src="/logo.png"
-              alt="Império Jiu-Jitsu"
-              className="w-full h-full object-contain drop-shadow-md"
-            />
+          <div className="mx-auto mb-4 w-16 h-16 rounded-2xl bg-red-600/10 border border-red-200 flex items-center justify-center">
+            <ShieldCheck className="w-8 h-8 text-red-600" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Império Jiu-Jitsu</h1>
-          <p className="text-gray-500 text-sm mt-1">Sistema de Gestão da Academia</p>
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">AcademyHand</h1>
+          <p className="text-gray-500 text-sm mt-1">Sistema de Gestão para Academias</p>
         </div>
 
         {/* Formulário */}

@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { stripe } from '@/lib/stripe';
-import { PlanKey, Periodicidade } from '@/lib/plans';
+import Stripe from 'stripe';
+import { adminDb } from '@/lib/firebase-admin';
+import { PlanKey, Periodicidade, PLANS } from '@/lib/plans';
 
 interface SubscriptionBody {
   mode: 'subscription';
+  academyId: string;
   studentId: string;
   studentEmail: string;
   studentName: string;
@@ -13,6 +15,7 @@ interface SubscriptionBody {
 
 interface PaymentBody {
   mode: 'payment';
+  academyId: string;
   studentId: string;
   studentEmail: string;
   studentName: string;
@@ -22,21 +25,66 @@ interface PaymentBody {
 
 type Body = SubscriptionBody | PaymentBody;
 
+// Converte a periodicidade do seu sistema para o formato de recorrência do Stripe
+function periodicidadeParaRecurring(periodicidade: Periodicidade): Stripe.Checkout.SessionCreateParams.LineItem.PriceData.Recurring {
+  switch (periodicidade) {
+    case 'mensal':     return { interval: 'month', interval_count: 1 };
+    case 'trimestral': return { interval: 'month', interval_count: 3 };
+    case 'semestral':  return { interval: 'month', interval_count: 6 };
+    case 'anual':      return { interval: 'year', interval_count: 1 };
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as Body;
 
+    if (!body.academyId) {
+      return NextResponse.json({ error: 'academyId é obrigatório' }, { status: 400 });
+    }
+
+    // Busca a academia e confirma que ela está ativa e tem chave configurada
+    const academyDoc = await adminDb().collection('academies').doc(body.academyId).get();
+    if (!academyDoc.exists) {
+      return NextResponse.json({ error: 'Academia não encontrada' }, { status: 404 });
+    }
+    const academyData = academyDoc.data()!;
+
+    if (academyData.ativa === false) {
+      return NextResponse.json({ error: 'Academia suspensa' }, { status: 403 });
+    }
+
+    if (!academyData.stripeSecretKey) {
+      return NextResponse.json({ error: 'Stripe não configurado para essa academia' }, { status: 400 });
+    }
+
+    // Confirma que o aluno realmente pertence a essa academia (evita cruzar dados entre academias)
+    const studentDoc = await adminDb().collection('students').doc(body.studentId).get();
+    if (!studentDoc.exists || studentDoc.data()?.academyId !== body.academyId) {
+      return NextResponse.json({ error: 'Aluno não encontrado nessa academia' }, { status: 404 });
+    }
+
+    // Instância do Stripe criada na hora, com a chave da academia certa
+    const stripe = new Stripe(academyData.stripeSecretKey);
+
     if (body.mode === 'subscription') {
-      const priceId = process.env[
-        `STRIPE_PRICE_${body.plano.toUpperCase()}_${body.periodicidade.toUpperCase()}`
-      ]!;
+      const planoInfo = PLANS[body.plano][body.periodicidade];
 
       const session = await stripe.checkout.sessions.create({
         mode: 'subscription',
         customer_email: body.studentEmail,
         locale: 'pt-BR',
-        line_items: [{ price: priceId, quantity: 1 }],
+        line_items: [{
+          price_data: {
+            currency: 'brl',
+            product_data: { name: `${PLANS[body.plano].label} — ${body.periodicidade}` },
+            unit_amount: Math.round(planoInfo.valor * 100),
+            recurring: periodicidadeParaRecurring(body.periodicidade),
+          },
+          quantity: 1,
+        }],
         metadata: {
+          academyId: body.academyId,
           studentId: body.studentId,
           studentName: body.studentName,
           plano: body.plano,
@@ -45,6 +93,7 @@ export async function POST(req: NextRequest) {
         },
         subscription_data: {
           metadata: {
+            academyId: body.academyId,
             studentId: body.studentId,
             plano: body.plano,
             periodicidade: body.periodicidade,
@@ -78,6 +127,7 @@ export async function POST(req: NextRequest) {
           },
         ],
         metadata: {
+          academyId: body.academyId,
           studentId: body.studentId,
           studentName: body.studentName,
           type: 'one_time',

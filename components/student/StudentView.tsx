@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { db } from '@/services/firebase/config';
 import { doc, getDoc, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface StudentViewProps {
   userId: string;
@@ -18,7 +19,7 @@ interface StudentViewProps {
 interface StudentData {
   name: string;
   email: string;
-  belt: string;
+  belt?: string;
   status: string;
   monthlyFee: number;
   dueDate: number;
@@ -61,6 +62,9 @@ const BELT_COLORS: Record<string, string> = {
 };
 
 export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) => {
+  const { userData } = useAuth();
+  const academyId = userData?.academyId;
+
   const [studentData, setStudentData] = useState<StudentData | null>(null);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [videos, setVideos] = useState<VideoData[]>([]);
@@ -69,11 +73,11 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
   const [activeTab, setActiveTab] = useState<'overview' | 'pagamento' | 'attendance' | 'videos'>('overview');
 
   useEffect(() => {
-    if (!userId) { setLoading(false); return; }
+    if (!userId || !academyId) { setLoading(false); return; }
     loadStudentData();
     loadAttendance();
     loadVideos();
-  }, [userId]);
+  }, [userId, academyId]);
 
   const loadStudentData = async () => {
     try {
@@ -83,9 +87,11 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
   };
 
   const loadAttendance = async () => {
+    if (!academyId) return;
     try {
       const q = query(
         collection(db, 'attendance'),
+        where('academyId', '==', academyId),
         where('studentId', '==', userId),
         orderBy('date', 'desc'),
         limit(20)
@@ -97,8 +103,13 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
   };
 
   const loadVideos = async () => {
+    if (!academyId) return;
     try {
-      const q = query(collection(db, 'videos'), orderBy('createdAt', 'desc'));
+      const q = query(
+        collection(db, 'videos'),
+        where('academyId', '==', academyId),
+        orderBy('createdAt', 'desc')
+      );
       const snap = await getDocs(q);
       setVideos(snap.docs.map(d => {
         const data = d.data();
@@ -116,18 +127,18 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
   };
 
   const openPortal = async () => {
-    if (!studentData?.stripeCustomerId) return;
+    if (!studentData?.stripeCustomerId || !academyId) return;
     const res = await fetch('/api/stripe/portal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ customerId: studentData.stripeCustomerId }),
+      body: JSON.stringify({ customerId: studentData.stripeCustomerId, academyId }),
     });
     const { url } = await res.json();
     window.location.href = url;
   };
 
   const assinarAgora = async () => {
-    if (!studentData?.plano || !studentData?.periodicidade) return;
+    if (!studentData?.plano || !studentData?.periodicidade || !academyId) return;
     setAssinando(true);
     try {
       const res = await fetch('/api/stripe/checkout', {
@@ -135,6 +146,7 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mode: 'subscription',
+          academyId,
           studentId: userId,
           studentEmail: studentData.email,
           studentName: studentData.name,
@@ -204,9 +216,11 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
             </div>
             <div>
               <h1 className="text-base font-bold text-gray-900 leading-tight">{studentData.name}</h1>
-              <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${BELT_COLORS[studentData.belt] ?? 'bg-gray-100 text-gray-600'}`}>
-                Faixa {studentData.belt}
-              </span>
+              {studentData.belt && (
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${BELT_COLORS[studentData.belt] ?? 'bg-gray-100 text-gray-600'}`}>
+                  Faixa {studentData.belt}
+                </span>
+              )}
             </div>
           </div>
           <button

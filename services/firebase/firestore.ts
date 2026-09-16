@@ -24,6 +24,24 @@ export interface UserData {
   name: string;
   role: 0 | 1; // 0 = admin, 1 = student
   studentId?: string;
+  academyId: string; // isolamento multi-tenant: identifica a academia do usuário
+}
+
+// Uma condição de filtro
+export interface FilterCondition {
+  field: string;
+  operator: any;
+  value: any;
+}
+
+// Filtros aceitam uma condição única (compatibilidade com código existente)
+// ou uma lista de condições (necessário para academyId + outros campos juntos)
+type Filters = FilterCondition | FilterCondition[];
+
+// Normaliza filtros para sempre trabalhar com um array internamente
+function normalizeFilters(filters?: Filters): FilterCondition[] {
+  if (!filters) return [];
+  return Array.isArray(filters) ? filters : [filters];
 }
 
 // Limpar objeto de valores undefined
@@ -121,22 +139,23 @@ export const firestoreService = {
   },
 
   // Obter todos os documentos de uma coleção
-  async getDocuments<T>(collectionName: string, filters?: {
-    field?: string;
-    operator?: any;
-    value?: any;
+  // filters aceita 1 condição (como antes) OU uma lista de condições
+  // ex: [{ field: 'academyId', operator: '==', value: academyId }, { field: 'status', operator: '==', value: 'ativo' }]
+  async getDocuments<T>(collectionName: string, filters?: Filters, options?: {
     orderByField?: string;
     orderDirection?: 'asc' | 'desc';
   }): Promise<T[]> {
     try {
       let q = collection(db, collectionName) as any;
       
-      if (filters?.field && filters?.operator && filters?.value !== undefined) {
-        q = query(q, where(filters.field, filters.operator, filters.value));
+      for (const filtro of normalizeFilters(filters)) {
+        if (filtro.field && filtro.operator && filtro.value !== undefined) {
+          q = query(q, where(filtro.field, filtro.operator, filtro.value));
+        }
       }
       
-      if (filters?.orderByField) {
-        q = query(q, orderBy(filters.orderByField, filters.orderDirection || 'asc'));
+      if (options?.orderByField) {
+        q = query(q, orderBy(options.orderByField, options.orderDirection || 'asc'));
       }
       
       const querySnapshot = await getDocs(q);
@@ -163,11 +182,7 @@ export const firestoreService = {
         updatedAt: serverTimestamp()
       };
       
-      console.log('Saving to Firestore:', collectionName, dataWithTimestamps);
-      
       const docRef = await addDoc(collection(db, collectionName), dataWithTimestamps);
-      
-      console.log('Document created with ID:', docRef.id);
       
       // Buscar o documento criado para garantir que temos todos os dados
       const createdDoc = await this.getDocument<T>(collectionName, docRef.id);
@@ -218,10 +233,8 @@ export const firestoreService = {
     collectionName: string,
     pageSize: number = 10,
     lastDoc?: QueryDocumentSnapshot<DocumentData>,
-    filters?: {
-      field?: string;
-      operator?: any;
-      value?: any;
+    filters?: Filters,
+    options?: {
       orderByField?: string;
       orderDirection?: 'asc' | 'desc';
     }
@@ -233,12 +246,14 @@ export const firestoreService = {
     try {
       let q = collection(db, collectionName) as any;
       
-      if (filters?.field && filters?.operator && filters?.value !== undefined) {
-        q = query(q, where(filters.field, filters.operator, filters.value));
+      for (const filtro of normalizeFilters(filters)) {
+        if (filtro.field && filtro.operator && filtro.value !== undefined) {
+          q = query(q, where(filtro.field, filtro.operator, filtro.value));
+        }
       }
       
-      if (filters?.orderByField) {
-        q = query(q, orderBy(filters.orderByField, filters.orderDirection || 'asc'));
+      if (options?.orderByField) {
+        q = query(q, orderBy(options.orderByField, options.orderDirection || 'asc'));
       }
       
       q = query(q, limit(pageSize));
@@ -267,19 +282,14 @@ export const firestoreService = {
   },
 
   // Contar documentos
-  async countDocuments(
-    collectionName: string,
-    filters?: {
-      field?: string;
-      operator?: any;
-      value?: any;
-    }
-  ): Promise<number> {
+  async countDocuments(collectionName: string, filters?: Filters): Promise<number> {
     try {
       let q = collection(db, collectionName) as any;
       
-      if (filters?.field && filters?.operator && filters?.value !== undefined) {
-        q = query(q, where(filters.field, filters.operator, filters.value));
+      for (const filtro of normalizeFilters(filters)) {
+        if (filtro.field && filtro.operator && filtro.value !== undefined) {
+          q = query(q, where(filtro.field, filtro.operator, filtro.value));
+        }
       }
       
       const querySnapshot = await getDocs(q);

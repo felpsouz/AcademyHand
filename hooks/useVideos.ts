@@ -1,18 +1,27 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Video } from '@/types';
 import { videoService } from '@/services/firebase/videos';
+import { useAuth } from '@/contexts/AuthContext';
 
 export const useVideos = () => {
   const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { userData } = useAuth();
+  const academyId = userData?.academyId;
 
-  const fetchVideos = async () => {
+  const fetchVideos = useCallback(async () => {
+    if (!academyId) {
+      setVideos([]);
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
 
-      const data = await videoService.getAllVideos();
+      const data = await videoService.getAllVideos(academyId);
 
       setVideos(data);
     } catch (err) {
@@ -21,11 +30,11 @@ export const useVideos = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [academyId]);
 
   useEffect(() => {
     fetchVideos();
-  }, []);
+  }, [fetchVideos]);
 
   const normalizeVideo = (
     videoData: Omit<Video, 'id' | 'createdAt' | 'updatedAt'>
@@ -43,9 +52,13 @@ export const useVideos = () => {
   const createVideo = async (
     videoData: Omit<Video, 'id' | 'createdAt' | 'updatedAt'>
   ) => {
+    if (!academyId) {
+      throw new Error('Academia não identificada. Faça login novamente.');
+    }
+
     try {
       const payload = normalizeVideo(videoData);
-      await videoService.createVideo(payload);
+      await videoService.createVideo(academyId, payload);
       await fetchVideos();
     } catch (err) {
       console.error('Error creating video:', err);

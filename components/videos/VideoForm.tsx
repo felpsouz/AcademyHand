@@ -4,14 +4,15 @@ import React, { useState, useEffect } from 'react';
 import { Video } from '@/types';
 import { useToast } from '@/hooks/useToast';
 import { validateURL } from '@/utils/validators';
-import { videoService } from '@/services/firebase/videos';
 
 interface VideoFormProps {
   video?: Video | null;
   onSuccess: () => void;
+  onCreate: (videoData: Omit<Video, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
+  onUpdate: (id: string, videoData: Omit<Video, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
 }
 
-export const VideoForm: React.FC<VideoFormProps> = ({ video, onSuccess }) => {
+export const VideoForm: React.FC<VideoFormProps> = ({ video, onSuccess, onCreate, onUpdate }) => {
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
 
@@ -69,11 +70,11 @@ export const VideoForm: React.FC<VideoFormProps> = ({ video, onSuccess }) => {
       
       if (video?.id) {
         // Atualizar vídeo existente
-        await videoService.updateVideo(video.id, videoData);
+        await onUpdate(video.id, videoData);
         showToast('Vídeo atualizado com sucesso!', 'success');
       } else {
-        // Criar novo vídeo
-        await videoService.createVideo(videoData);
+        // Criar novo vídeo (o hook já injeta o academyId certo)
+        await onCreate(videoData);
         showToast('Vídeo adicionado com sucesso!', 'success');
       }
       

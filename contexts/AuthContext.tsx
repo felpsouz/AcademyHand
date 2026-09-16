@@ -14,8 +14,11 @@ import { useToast } from '@/hooks/useToast';
 interface UserData {
   email: string;
   name: string;
-  role: 0 | 1; // 0 = admin, 1 = student
+  role: 0 | 1 | 2; // 0 = admin, 1 = student, 2 = master
   studentId?: string;
+  academyId: string; // isolamento multi-tenant: identifica a academia do usuário
+  academyName?: string; // nome da academia, copiado na criação (client não lê "academies" direto)
+  usaGraduacao?: boolean; // controla se a UI mostra campos de faixa/graduação
 }
 
 interface AuthContextType {
@@ -41,6 +44,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (user) {
         try {
           const data = await getUserData(user.uid);
+
+          // Trava de segurança no client: se por algum motivo o usuário
+          // não tiver academyId, não deixamos ele "meio logado" no sistema.
+          if (data && !data.academyId) {
+            console.error('Usuário sem academyId associado:', user.uid);
+            showToast('Sua conta não está associada a nenhuma academia. Contate o suporte.', 'error');
+            await firebaseSignOut(auth);
+            setUserData(null);
+            setLoading(false);
+            return;
+          }
+
+          // Verifica se a academia do usuário ainda está ativa
+          // (master é sempre liberado, a própria rota já trata isso)
+          if (data) {
+            try {
+              const idToken = await user.getIdToken();
+              const res = await fetch('/api/auth/check-academy-status', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${idToken}` },
+              });
+              const status = await res.json();
+
+              // Só bloqueia se a API confirmar EXPLICITAMENTE que está suspensa.
+              // Qualquer outra coisa (erro de token passageiro, resposta inesperada)
+              // não deve derrubar o login — só logamos o problema no console.
+              if (status.ativa === false) {
+                showToast(
+                  status.motivo === 'Academia suspensa'
+                    ? 'Acesso suspenso. Entre em contato com o suporte.'
+                    : 'Não foi possível validar sua academia. Contate o suporte.',
+                  'error'
+                );
+                await firebaseSignOut(auth);
+                setUserData(null);
+                setLoading(false);
+                return;
+              }
+
+              if (status.ativa !== true) {
+                console.warn('Resposta inesperada ao verificar status da academia:', status);
+              }
+            } catch (statusError) {
+              // Se a checagem falhar por erro de rede/servidor, não bloqueamos o login
+              // (evita travar todo mundo fora por uma falha temporária da rota).
+              console.error('Erro ao verificar status da academia:', statusError);
+            }
+          }
+
           setUserData(data);
         } catch (error) {
           console.error('Error fetching user data:', error);
@@ -58,7 +110,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     try {
-      console.log('Login attempt:', { email });
       await signInWithEmailAndPassword(auth, email, password);
       showToast('Login realizado com sucesso!', 'success');
     } catch (error: any) {

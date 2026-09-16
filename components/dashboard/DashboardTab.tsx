@@ -7,6 +7,7 @@ import {
   CheckCircle, Clock, Eye, EyeOff,
 } from 'lucide-react';
 import { firestoreService } from '@/services/firebase/firestore';
+import { useAuth } from '@/contexts/AuthContext';
 import { Student } from '@/types';
 
 interface Payment {
@@ -32,6 +33,9 @@ interface DashboardStats {
 }
 
 export const DashboardTab: React.FC = () => {
+  const { userData } = useAuth();
+  const academyId = userData?.academyId;
+
   const [stats, setStats] = useState<DashboardStats>({
     totalStudents: 0,
     activeStudents: 0,
@@ -48,7 +52,7 @@ export const DashboardTab: React.FC = () => {
   const [refreshKey,  setRefreshKey]  = useState(0);
   const [hideValues,  setHideValues]  = useState(false);
 
-  useEffect(() => { loadDashboardData(); }, [refreshKey]);
+  useEffect(() => { loadDashboardData(); }, [refreshKey, academyId]);
 
   useEffect(() => {
     (window as any).refreshDashboard = () => setRefreshKey(prev => prev + 1);
@@ -56,10 +60,17 @@ export const DashboardTab: React.FC = () => {
   }, []);
 
   const loadDashboardData = async () => {
+    if (!academyId) {
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
 
-      const students      = await firestoreService.getDocuments<Student>('students');
+      const students = await firestoreService.getDocuments<Student>('students', {
+        field: 'academyId', operator: '==', value: academyId,
+      });
       const activeStudents = students.filter(s => s.status === 'active');
       const stripeActive  = students.filter(s => s.stripePaymentStatus === 'active').length;
       const stripeOverdue = students.filter(s => s.stripePaymentStatus === 'overdue').length;
@@ -70,10 +81,11 @@ export const DashboardTab: React.FC = () => {
 
       let payments: Payment[] = [];
       try {
-        payments = await firestoreService.getDocuments<Payment>('payments', {
-          orderByField: 'paidAt',
-          orderDirection: 'desc',
-        });
+        payments = await firestoreService.getDocuments<Payment>(
+          'payments',
+          { field: 'academyId', operator: '==', value: academyId },
+          { orderByField: 'paidAt', orderDirection: 'desc' }
+        );
       } catch (err) {
         console.warn('Payments não disponível:', err);
       }
@@ -86,9 +98,10 @@ export const DashboardTab: React.FC = () => {
       const todayStr = now.toLocaleDateString('pt-BR');
       let todayCount = 0;
       try {
-        const att = await firestoreService.getDocuments<any>('attendance', {
-          field: 'date', operator: '==', value: todayStr,
-        });
+        const att = await firestoreService.getDocuments<any>('attendance', [
+          { field: 'academyId', operator: '==', value: academyId },
+          { field: 'date', operator: '==', value: todayStr },
+        ]);
         todayCount = att.length;
       } catch (err) {
         console.warn('Attendance não disponível:', err);
@@ -155,7 +168,6 @@ export const DashboardTab: React.FC = () => {
   return (
     <div className="space-y-6">
 
-      {/* Header com botão olhinho */}
       <div className="flex items-center justify-end">
         <button
           onClick={() => setHideValues(prev => !prev)}
@@ -168,7 +180,6 @@ export const DashboardTab: React.FC = () => {
         </button>
       </div>
 
-      {/* Cards principais */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
           <div className="flex items-center justify-between mb-3">
@@ -209,7 +220,6 @@ export const DashboardTab: React.FC = () => {
         </div>
       </div>
 
-      {/* Status Stripe + Receita */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
@@ -292,7 +302,6 @@ export const DashboardTab: React.FC = () => {
         </div>
       </div>
 
-      {/* Pagamentos recentes */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
         <h3 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
           <History className="w-4 h-4 text-red-600" />

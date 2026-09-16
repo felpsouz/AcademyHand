@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Student, BeltLevel, StudentStatus } from '@/types';
 import { PlanKey, Periodicidade, PLANS } from '@/lib/plans';
 import { useToast } from '@/hooks/useToast';
+import { useAuth } from '@/contexts/AuthContext';
 import { initializeApp, getApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
@@ -84,6 +85,12 @@ async function syncWithDevice(userId: string, name: string, photoFile: File | nu
 
 export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) => {
   const { showToast } = useToast();
+  const { userData: adminUserData } = useAuth();
+  const academyId = adminUserData?.academyId;
+  const academyName = adminUserData?.academyName;
+  // Se o campo não existir ainda em academias antigas, assume true (comportamento anterior)
+  const usaGraduacao = adminUserData?.usaGraduacao !== false;
+
   const [loading, setLoading] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [generatedLink, setGeneratedLink] = useState<string | null>(null);
@@ -175,6 +182,11 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!academyId) {
+      showToast('Academia não identificada. Faça login novamente.', 'error');
+      return;
+    }
+
     if (!formData.name.trim()) { showToast('Nome é obrigatório', 'error'); return; }
     if (!formData.email.trim()) { showToast('Email é obrigatório', 'error'); return; }
     if (!isEditMode && (!formData.password || formData.password.length < 6)) {
@@ -186,16 +198,24 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
       setLoading(true);
 
       if (isEditMode && student) {
-        await firestoreService.updateDocument('students', student.id, {
+        const updateData: any = {
           name: formData.name.trim(),
           email: formData.email.trim(),
           phone: formData.phone.trim(),
-          belt: formData.belt,
           status: formData.status,
           monthlyFee: formData.monthlyFee,
+          plano: selectedPlano,
+          periodicidade: selectedPeriodicidade,
           diasPermitidos: PLANS[selectedPlano].diasPermitidos,
           updatedAt: new Date().toISOString(),
-        });
+        };
+
+        // Só grava a faixa se essa academia usa sistema de graduação
+        if (usaGraduacao) {
+          updateData.belt = formData.belt;
+        }
+
+        await firestoreService.updateDocument('students', student.id, updateData);
 
         if (photoFile) {
           const ok = await syncWithDevice(student.id, formData.name.trim(), photoFile);
@@ -241,17 +261,23 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
       const nextMonth = new Date();
       nextMonth.setMonth(nextMonth.getMonth() + 1);
 
+      // IMPORTANTE: academyId (e academyName/usaGraduacao denormalizados) precisam
+      // vir junto, senão o aluno cai fora do isolamento multi-tenant e as regras
+      // do Firestore vão bloquear qualquer leitura/escrita dele.
       await setDoc(doc(db, 'users', userId), {
         email: formData.email.trim(),
         name: formData.name.trim(),
         role: 1,
+        academyId,
+        academyName: academyName || null,
+        usaGraduacao,
       });
 
-      await setDoc(doc(db, 'students', userId), {
+      const studentData: any = {
+        academyId,
         name: formData.name.trim(),
         email: formData.email.trim(),
         phone: formData.phone.trim(),
-        belt: formData.belt,
         status: formData.status,
         monthlyFee: PLANS[selectedPlano][selectedPeriodicidade].valor,
         paymentStatus: 'pending',
@@ -262,10 +288,17 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
         lastPayment: now,
         nextPaymentDue: nextMonth.toISOString(),
         totalAttendances: 0,
-        beltHistory: [{ from: 'Branca', to: formData.belt, date: now, notes: 'Cadastro inicial' }],
         createdAt: now,
         updatedAt: now,
-      });
+      };
+
+      // Só grava faixa/histórico de graduação se a academia usa esse sistema
+      if (usaGraduacao) {
+        studentData.belt = formData.belt;
+        studentData.beltHistory = [{ from: 'Branca', to: formData.belt, date: now, notes: 'Cadastro inicial' }];
+      }
+
+      await setDoc(doc(db, 'students', userId), studentData);
 
       // Sincronizar com dispositivo Intelbras
       const syncOk = await syncWithDevice(userId, formData.name.trim(), photoFile);
@@ -282,6 +315,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             mode: 'subscription',
+            academyId,
             studentId: userId,
             studentEmail: formData.email.trim(),
             studentName: formData.name.trim(),
@@ -446,40 +480,42 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm text-gray-900" />
       </div>
 
-      {/* ── Faixa ── */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <label className="block text-sm font-medium text-gray-700">Faixa *</label>
-          <div className="flex rounded-lg overflow-hidden border border-gray-300 text-xs">
-            <button type="button" onClick={() => handleKidsToggle(false)} disabled={loading}
-              className={`px-3 py-1.5 font-medium transition ${!isKids ? 'bg-red-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
-              Adulto
-            </button>
-            <button type="button" onClick={() => handleKidsToggle(true)} disabled={loading}
-              className={`px-3 py-1.5 font-medium transition ${isKids ? 'bg-green-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
-              Kids
-            </button>
+      {/* ── Faixa (só aparece se a academia usa sistema de graduação) ── */}
+      {usaGraduacao && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm font-medium text-gray-700">Faixa *</label>
+            <div className="flex rounded-lg overflow-hidden border border-gray-300 text-xs">
+              <button type="button" onClick={() => handleKidsToggle(false)} disabled={loading}
+                className={`px-3 py-1.5 font-medium transition ${!isKids ? 'bg-red-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                Adulto
+              </button>
+              <button type="button" onClick={() => handleKidsToggle(true)} disabled={loading}
+                className={`px-3 py-1.5 font-medium transition ${isKids ? 'bg-green-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                Kids
+              </button>
+            </div>
+          </div>
+          <div className={`grid gap-2 ${isKids ? 'grid-cols-3' : 'grid-cols-5'}`}>
+            {currentBelts.map(belt => {
+              const isSelected = formData.belt === belt;
+              return (
+                <button key={belt} type="button" disabled={loading}
+                  onClick={() => setFormData(prev => ({ ...prev, belt: belt as BeltLevel }))}
+                  className={`flex flex-col items-center gap-1.5 p-2 rounded-xl border-2 transition text-xs font-medium
+                    ${isSelected
+                      ? 'border-red-500 bg-red-50 text-red-700 ring-2 ring-red-300'
+                      : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'
+                    }`}
+                >
+                  <div className={`w-full h-3 rounded-full ${beltColors[belt] || 'bg-gray-300'}`} />
+                  <span className="leading-tight text-center">{belt.replace(' (Kids)', '')}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
-        <div className={`grid gap-2 ${isKids ? 'grid-cols-3' : 'grid-cols-5'}`}>
-          {currentBelts.map(belt => {
-            const isSelected = formData.belt === belt;
-            return (
-              <button key={belt} type="button" disabled={loading}
-                onClick={() => setFormData(prev => ({ ...prev, belt: belt as BeltLevel }))}
-                className={`flex flex-col items-center gap-1.5 p-2 rounded-xl border-2 transition text-xs font-medium
-                  ${isSelected
-                    ? 'border-red-500 bg-red-50 text-red-700 ring-2 ring-red-300'
-                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'
-                  }`}
-              >
-                <div className={`w-full h-3 rounded-full ${beltColors[belt] || 'bg-gray-300'}`} />
-                <span className="leading-tight text-center">{belt.replace(' (Kids)', '')}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      )}
 
       {/* ── Status ── */}
       <div>

@@ -7,6 +7,7 @@ import {
   Search, Users,
 } from 'lucide-react';
 import { firestoreService } from '@/services/firebase/firestore';
+import { useAuth } from '@/contexts/AuthContext';
 import { Student, PlanKey, Periodicidade, StripePaymentStatus } from '@/types';
 import { PLANS } from '@/lib/plans';
 import { CobrancaAvulsaModal } from './CobrancaAvulsaModal';
@@ -31,6 +32,9 @@ const planColors: Record<PlanKey, string> = {
 const periodicidades: Periodicidade[] = ['mensal', 'trimestral', 'semestral', 'anual'];
 
 export const StripeTab: React.FC = () => {
+  const { userData } = useAuth();
+  const academyId = userData?.academyId;
+
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [generatingLink, setGeneratingLink] = useState<string | null>(null);
@@ -39,15 +43,28 @@ export const StripeTab: React.FC = () => {
   const [cobrancaStudent, setCobrancaStudent] = useState<Student | null>(null);
   const [expandedStudent, setExpandedStudent] = useState<string | null>(null);
 
-  useEffect(() => { loadStudents(); }, []);
+  useEffect(() => { loadStudents(); }, [academyId]);
 
   const loadStudents = async () => {
+    if (!academyId) {
+      setStudents([]);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
-    const data = await firestoreService.getDocuments<Student>('students', {
-      orderByField: 'name', orderDirection: 'asc',
-    });
-    setStudents(data);
-    setLoading(false);
+    try {
+      const data = await firestoreService.getDocuments<Student>(
+        'students',
+        { field: 'academyId', operator: '==', value: academyId },
+        { orderByField: 'name', orderDirection: 'asc' }
+      );
+      setStudents(data);
+    } catch (err) {
+      console.error('Erro ao carregar alunos:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const generateCheckoutLink = async (student: Student, plano: PlanKey, periodicidade: Periodicidade) => {
@@ -58,6 +75,7 @@ export const StripeTab: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mode: 'subscription',
+          academyId,
           studentId: student.id,
           studentEmail: student.email,
           studentName: student.name,
@@ -77,10 +95,11 @@ export const StripeTab: React.FC = () => {
   };
 
   const openPortal = async (customerId: string) => {
+    if (!academyId) return;
     const res = await fetch('/api/stripe/portal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ customerId }),
+      body: JSON.stringify({ customerId, academyId }),
     });
     const { url } = await res.json();
     window.open(url, '_blank');
@@ -115,7 +134,6 @@ export const StripeTab: React.FC = () => {
   return (
     <div className="space-y-5">
 
-      {/* Cards de resumo */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
           { key: 'all',     label: 'Total',     value: students.length, icon: <Users className="w-4 h-4" />,       color: 'bg-gray-50 border-gray-200 text-gray-700' },
@@ -137,7 +155,6 @@ export const StripeTab: React.FC = () => {
         ))}
       </div>
 
-      {/* Busca */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
         <input
@@ -149,7 +166,6 @@ export const StripeTab: React.FC = () => {
         />
       </div>
 
-      {/* Lista */}
       <div className="space-y-2">
         {filtered.length === 0 ? (
           <div className="bg-gray-50 rounded-xl p-10 text-center text-gray-400 text-sm">

@@ -4,23 +4,32 @@ import { useState, useCallback, useEffect } from 'react';
 import { Transaction, TransactionType } from '@/types';
 import { firestoreService } from '@/services/firebase/firestore';
 import { useToast } from './useToast';
+import { useAuth } from '@/contexts/AuthContext';
 
 export const useTransactions = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { showToast } = useToast();
+  const { userData } = useAuth();
+  const academyId = userData?.academyId;
 
-  // Carregar transações
+  // Carregar transações (sempre filtrado pela academia do usuário logado)
   const loadTransactions = useCallback(async () => {
+    if (!academyId) {
+      setTransactions([]);
+      return [];
+    }
+
     try {
       setLoading(true);
       setError(null);
       
-      const data = await firestoreService.getDocuments<Transaction>('transactions', {
-        orderByField: 'createdAt',
-        orderDirection: 'desc'
-      });
+      const data = await firestoreService.getDocuments<Transaction>(
+        'transactions',
+        { field: 'academyId', operator: '==', value: academyId },
+        { orderByField: 'createdAt', orderDirection: 'desc' }
+      );
       
       setTransactions(data);
       return data;
@@ -33,10 +42,14 @@ export const useTransactions = () => {
     } finally {
       setLoading(false);
     }
-  }, [showToast]);
+  }, [academyId, showToast]);
 
   // Adicionar transação
   const addTransaction = useCallback(async (transactionData: Partial<Transaction>) => {
+    if (!academyId) {
+      throw new Error('Academia não identificada. Faça login novamente.');
+    }
+
     try {
       setLoading(true);
       setError(null);
@@ -51,8 +64,8 @@ export const useTransactions = () => {
 
       const now = new Date().toISOString();
       
-      // Criar objeto base
       const newTransactionData: any = {
+        academyId,
         type: transactionData.type || 'revenue',
         amount: transactionData.amount,
         description: transactionData.description.trim(),
@@ -61,7 +74,6 @@ export const useTransactions = () => {
         updatedAt: now
       };
 
-      // Adicionar campos opcionais somente se tiverem valor
       if (transactionData.paymentMethod) {
         newTransactionData.paymentMethod = transactionData.paymentMethod;
       }
@@ -80,7 +92,6 @@ export const useTransactions = () => {
 
       const newTransaction = await firestoreService.addDocument<Transaction>('transactions', newTransactionData);
       
-      // ✅ ATUALIZAR ESTADO LOCAL IMEDIATAMENTE
       setTransactions(prev => [newTransaction, ...prev]);
       
       showToast('Transação registrada com sucesso!', 'success');
@@ -94,7 +105,7 @@ export const useTransactions = () => {
     } finally {
       setLoading(false);
     }
-  }, [showToast]);
+  }, [academyId, showToast]);
 
   // Atualizar transação
   const updateTransaction = useCallback(async (id: string, updates: Partial<Transaction>) => {
@@ -102,12 +113,10 @@ export const useTransactions = () => {
       setLoading(true);
       setError(null);
 
-      // Criar objeto de atualização sem undefined
       const updatedData: any = {
         updatedAt: new Date().toISOString()
       };
 
-      // Adicionar campos que têm valor
       Object.keys(updates).forEach(key => {
         const value = (updates as any)[key];
         if (value !== undefined) {
@@ -123,7 +132,6 @@ export const useTransactions = () => {
 
       await firestoreService.updateDocument('transactions', id, updatedData);
       
-      // ✅ ATUALIZAR ESTADO LOCAL IMEDIATAMENTE
       setTransactions(prev => prev.map(t => 
         t.id === id ? { ...t, ...updatedData } : t
       ));
@@ -148,13 +156,10 @@ export const useTransactions = () => {
       
       await firestoreService.deleteDocument('transactions', id);
       
-      // ✅ ATUALIZAR ESTADO LOCAL IMEDIATAMENTE
       setTransactions(prev => prev.filter(t => t.id !== id));
-      
       showToast('Transação excluída com sucesso', 'info');
     } catch (err: any) {
       const errorMsg = 'Erro ao excluir transação';
-      setError(errorMsg);
       showToast(errorMsg, 'error');
       console.error(err);
       throw err;
@@ -184,7 +189,6 @@ export const useTransactions = () => {
 
     const profit = revenue - expenses;
 
-    // Calcular mês anterior para comparação
     const lastMonth = new Date(currentYear, currentMonth - 1, 1);
     const lastMonthTransactions = transactions.filter(t => {
       const tDate = new Date(t.createdAt);
@@ -209,12 +213,10 @@ export const useTransactions = () => {
     };
   }, [transactions]);
 
-  // Filtrar transações por tipo
   const getTransactionsByType = useCallback((type: TransactionType): Transaction[] => {
     return transactions.filter(t => t.type === type);
   }, [transactions]);
 
-  // Filtrar transações por mês
   const getTransactionsByMonth = useCallback((year: number, month: number): Transaction[] => {
     return transactions.filter(t => {
       const tDate = new Date(t.createdAt);
@@ -222,7 +224,6 @@ export const useTransactions = () => {
     });
   }, [transactions]);
 
-  // Carregar dados inicialmente
   useEffect(() => {
     loadTransactions();
   }, [loadTransactions]);
