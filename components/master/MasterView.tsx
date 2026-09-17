@@ -6,6 +6,8 @@ import { Button } from '@/components/common/Button';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { useMasterPanel } from '@/hooks/useMasterPanel';
 import { CreateAcademyModal } from './CreateAcademyModal';
+import { EditAcademyModal } from './EditAcademyModal';
+import { AcademyUsersModal } from './AcademyUsersModal';
 import { CreateUserModal } from './CreateUserModal';
 
 interface MasterViewProps {
@@ -21,10 +23,17 @@ export function MasterView({ onLogout }: MasterViewProps) {
     carregarOverview,
     criarAcademia,
     alternarStatusAcademia,
+    obterAcademia,
+    atualizarAcademia,
+    listarUsuariosDaAcademia,
+    atualizarUsuario,
+    removerUsuario,
     criarUsuario,
   } = useMasterPanel();
 
   const [modalAcademiaAberto, setModalAcademiaAberto] = useState(false);
+  const [academiaParaEditar, setAcademiaParaEditar] = useState<string | null>(null);
+  const [academiaParaVerUsuarios, setAcademiaParaVerUsuarios] = useState<{ id: string; nome: string } | null>(null);
   const [modalUsuarioAberto, setModalUsuarioAberto] = useState(false);
   const [academiaParaNovoUsuario, setAcademiaParaNovoUsuario] = useState<string | undefined>();
   const [alterandoStatus, setAlterandoStatus] = useState<string | null>(null);
@@ -128,7 +137,14 @@ export function MasterView({ onLogout }: MasterViewProps) {
             <tbody>
               {academias.map((academia) => (
                 <tr key={academia.id} className="border-t border-gray-100">
-                  <td className="px-4 py-3 font-medium text-gray-900">{academia.nome}</td>
+                  <td className="px-4 py-3 font-medium text-gray-900">
+                    <button
+                      onClick={() => setAcademiaParaVerUsuarios({ id: academia.id, nome: academia.nome })}
+                      className="hover:underline hover:text-red-600 text-left"
+                    >
+                      {academia.nome}
+                    </button>
+                  </td>
                   <td className="px-4 py-3">
                     <span
                       className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
@@ -141,6 +157,12 @@ export function MasterView({ onLogout }: MasterViewProps) {
                   <td className="px-4 py-3 text-gray-600">{academia.totalAdmins ?? '-'}</td>
                   <td className="px-4 py-3 text-gray-600">{academia.totalAlunos ?? '-'}</td>
                   <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
+                    <button
+                      onClick={() => setAcademiaParaEditar(academia.id)}
+                      className="text-sm text-gray-600 hover:underline"
+                    >
+                      Editar
+                    </button>
                     <button
                       onClick={() => abrirNovoUsuario(academia.id)}
                       className="text-sm text-red-600 hover:underline"
@@ -176,6 +198,24 @@ export function MasterView({ onLogout }: MasterViewProps) {
         isOpen={modalAcademiaAberto}
         onClose={() => setModalAcademiaAberto(false)}
         onCreate={criarAcademia}
+      />
+
+      <EditAcademyModal
+        isOpen={!!academiaParaEditar}
+        onClose={() => setAcademiaParaEditar(null)}
+        academyId={academiaParaEditar}
+        onLoad={obterAcademia}
+        onSave={atualizarAcademia}
+      />
+
+      <AcademyUsersModal
+        isOpen={!!academiaParaVerUsuarios}
+        onClose={() => setAcademiaParaVerUsuarios(null)}
+        academyId={academiaParaVerUsuarios?.id ?? null}
+        academyName={academiaParaVerUsuarios?.nome}
+        onList={listarUsuariosDaAcademia}
+        onUpdate={atualizarUsuario}
+        onDelete={removerUsuario}
       />
 
       <CreateUserModal

@@ -93,6 +93,53 @@ export function useMasterPanel() {
     return data;
   }, [chamarApi, carregarOverview]);
 
+  // Busca os dados completos de UMA academia (pra abrir o formulário de edição)
+  const obterAcademia = useCallback(async (academyId: string) => {
+    return chamarApi(`/api/master/academies/${academyId}`);
+  }, [chamarApi]);
+
+  // Atualiza qualquer campo de uma academia (nome, graduação, facial, Stripe, etc.)
+  const atualizarAcademia = useCallback(async (academyId: string, payload: {
+    nome?: string;
+    usaGraduacao?: boolean;
+    usaFacial?: boolean;
+    device?: { ip: string; port: string; user: string; pass: string } | null;
+    stripeSecretKey?: string;
+    stripeWebhookSecret?: string;
+  }) => {
+    const data = await chamarApi(`/api/master/academies/${academyId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    await carregarOverview();
+    return data;
+  }, [chamarApi, carregarOverview]);
+
+  // Lista os usuários (admins + alunos) de uma academia
+  const listarUsuariosDaAcademia = useCallback(async (academyId: string) => {
+    const data = await chamarApi(`/api/master/academies/${academyId}/users`);
+    return data.usuarios;
+  }, [chamarApi]);
+
+  // Edita nome, studentId e/ou senha de um usuário
+  const atualizarUsuario = useCallback(async (uid: string, payload: {
+    name?: string;
+    studentId?: string;
+    newPassword?: string;
+  }) => {
+    return chamarApi(`/api/master/users/${uid}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+  }, [chamarApi]);
+
+  // Remove um acesso por completo (Auth + Firestore)
+  const removerUsuario = useCallback(async (uid: string) => {
+    const data = await chamarApi(`/api/master/users/${uid}`, { method: 'DELETE' });
+    await carregarOverview();
+    return data;
+  }, [chamarApi, carregarOverview]);
+
   // Cria um admin ou aluno em qualquer academia
   const criarUsuario = useCallback(async (payload: {
     email: string;
@@ -118,6 +165,11 @@ export function useMasterPanel() {
     carregarOverview,
     criarAcademia,
     alternarStatusAcademia,
+    obterAcademia,
+    atualizarAcademia,
+    listarUsuariosDaAcademia,
+    atualizarUsuario,
+    removerUsuario,
     criarUsuario,
   };
 }

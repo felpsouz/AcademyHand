@@ -91,8 +91,9 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
   const academyName = adminUserData?.academyName;
   // Se o campo não existir ainda em academias antigas, assume true (comportamento anterior)
   const usaGraduacao = adminUserData?.usaGraduacao !== false;
-  // Leitor facial é opcional: só academias que têm o equipamento
-  const usaFacial = adminUserData?.usaFacial === true;
+  // Mesma lógica de compatibilidade do sync-user: sem o campo = tem facial
+  // (comportamento de sempre); só false explícito desativa.
+  const usaFacial = adminUserData?.usaFacial !== false;
 
   const [loading, setLoading] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);

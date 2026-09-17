@@ -27,9 +27,11 @@ async function getDeviceConfig(academyId: string): Promise<DeviceConfig | null> 
 
   const data = academyDoc.data()!;
 
-  // Academia sem leitor facial: nunca sincroniza (e nunca cai no fallback do
-  // .env, que apontaria para o dispositivo de OUTRA academia).
-  if (data.usaFacial !== true) return null;
+  // Compatibilidade: academias criadas antes dessa flag existir não têm o
+  // campo usaFacial (undefined) — tratamos isso como "tem sim", já que é
+  // o comportamento que elas sempre tiveram. Só desativa quando o master
+  // explicitamente desmarcou o checkbox ao criar a academia (false).
+  if (data.usaFacial === false) return null;
 
   const device = data.device;
 
