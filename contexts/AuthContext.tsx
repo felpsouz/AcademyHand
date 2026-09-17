@@ -19,6 +19,7 @@ interface UserData {
   academyId: string; // isolamento multi-tenant: identifica a academia do usuário
   academyName?: string; // nome da academia, copiado na criação (client não lê "academies" direto)
   usaGraduacao?: boolean; // controla se a UI mostra campos de faixa/graduação
+  usaFacial?: boolean; // controla se a UI mostra foto/sincronização com leitor facial
 }
 
 interface AuthContextType {

@@ -69,6 +69,8 @@ export function useMasterPanel() {
   const criarAcademia = useCallback(async (payload: {
     nome: string;
     usaGraduacao: boolean;
+    usaFacial: boolean;
+    device?: { ip: string; port: string; user: string; pass: string };
     stripeSecretKey?: string;
     stripeWebhookSecret?: string;
     academyId?: string;

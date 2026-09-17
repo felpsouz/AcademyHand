@@ -10,6 +10,8 @@ interface CreateAcademyModalProps {
   onCreate: (payload: {
     nome: string;
     usaGraduacao: boolean;
+    usaFacial: boolean;
+    device?: { ip: string; port: string; user: string; pass: string };
     stripeSecretKey?: string;
     stripeWebhookSecret?: string;
   }) => Promise<void>;
@@ -18,6 +20,11 @@ interface CreateAcademyModalProps {
 export function CreateAcademyModal({ isOpen, onClose, onCreate }: CreateAcademyModalProps) {
   const [nome, setNome] = useState('');
   const [usaGraduacao, setUsaGraduacao] = useState(true);
+  const [usaFacial, setUsaFacial] = useState(false);
+  const [deviceIp, setDeviceIp] = useState('');
+  const [devicePort, setDevicePort] = useState('9020');
+  const [deviceUser, setDeviceUser] = useState('admin');
+  const [devicePass, setDevicePass] = useState('');
   const [stripeSecretKey, setStripeSecretKey] = useState('');
   const [stripeWebhookSecret, setStripeWebhookSecret] = useState('');
   const [salvando, setSalvando] = useState(false);
@@ -31,11 +38,18 @@ export function CreateAcademyModal({ isOpen, onClose, onCreate }: CreateAcademyM
       await onCreate({
         nome,
         usaGraduacao,
+        usaFacial,
+        device: usaFacial && deviceIp
+          ? { ip: deviceIp, port: devicePort, user: deviceUser, pass: devicePass }
+          : undefined,
         stripeSecretKey: stripeSecretKey || undefined,
         stripeWebhookSecret: stripeWebhookSecret || undefined,
       });
       setNome('');
       setUsaGraduacao(true);
+      setUsaFacial(false);
+      setDeviceIp('');
+      setDevicePass('');
       setStripeSecretKey('');
       setStripeWebhookSecret('');
       onClose();
@@ -70,6 +84,54 @@ export function CreateAcademyModal({ isOpen, onClose, onCreate }: CreateAcademyM
           />
           Essa academia usa sistema de faixas/graduação (ex: Jiu-Jitsu)
         </label>
+
+        <label className="flex items-center gap-2 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={usaFacial}
+            onChange={(e) => setUsaFacial(e.target.checked)}
+            className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+          />
+          Essa academia tem leitor de reconhecimento facial
+        </label>
+
+        {usaFacial && (
+          <div className="pl-6 space-y-3 border-l-2 border-gray-100">
+            <p className="text-xs text-gray-500">
+              Dados do dispositivo (pode preencher depois, direto no Firestore)
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="text"
+                value={deviceIp}
+                onChange={(e) => setDeviceIp(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                placeholder="IP (ex: 192.168.2.100)"
+              />
+              <input
+                type="text"
+                value={devicePort}
+                onChange={(e) => setDevicePort(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                placeholder="Porta"
+              />
+              <input
+                type="text"
+                value={deviceUser}
+                onChange={(e) => setDeviceUser(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                placeholder="Usuário"
+              />
+              <input
+                type="password"
+                value={devicePass}
+                onChange={(e) => setDevicePass(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                placeholder="Senha"
+              />
+            </div>
+          </div>
+        )}
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">

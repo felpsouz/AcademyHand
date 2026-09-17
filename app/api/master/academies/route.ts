@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     await verifyMasterRequest(request);
 
     const body = await request.json();
-    const { nome, usaGraduacao, stripeSecretKey, stripeWebhookSecret, academyId } = body;
+    const { nome, usaGraduacao, usaFacial, device, stripeSecretKey, stripeWebhookSecret, academyId } = body;
 
     if (!nome || typeof nome !== 'string') {
       return NextResponse.json({ error: 'Campo "nome" é obrigatório' }, { status: 400 });
@@ -66,6 +66,8 @@ export async function POST(request: Request) {
     await docRef.set({
       nome,
       usaGraduacao: usaGraduacao !== false, // default true se não vier explicitamente false
+      usaFacial: usaFacial === true,        // default false: leitor facial é opcional
+      device: device ?? null,
       stripeSecretKey: stripeSecretKey || null,
       stripeWebhookSecret: stripeWebhookSecret || null,
       ativa: true,

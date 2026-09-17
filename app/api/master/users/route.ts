@@ -49,6 +49,7 @@ export async function POST(request: Request) {
       // Denormalizado da academia, já que o client nunca lê a coleção "academies" diretamente
       academyName: academyData.nome,
       usaGraduacao: academyData.usaGraduacao !== false,
+      usaFacial: academyData.usaFacial === true,
       criadoEm: FieldValue.serverTimestamp(),
     };
     if (role === 1 && studentId) {

@@ -64,9 +64,10 @@ const kidsBelts = [
   'Verde-Branca', 'Verde', 'Verde-Preta',
 ];
 
-async function syncWithDevice(userId: string, name: string, photoFile: File | null) {
+async function syncWithDevice(academyId: string, userId: string, name: string, photoFile: File | null) {
   try {
     const formData = new FormData();
+    formData.append('academyId', academyId);
     formData.append('userId', userId);
     formData.append('name', name);
     if (photoFile) formData.append('photo', photoFile);
@@ -90,6 +91,8 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
   const academyName = adminUserData?.academyName;
   // Se o campo não existir ainda em academias antigas, assume true (comportamento anterior)
   const usaGraduacao = adminUserData?.usaGraduacao !== false;
+  // Leitor facial é opcional: só academias que têm o equipamento
+  const usaFacial = adminUserData?.usaFacial === true;
 
   const [loading, setLoading] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -217,8 +220,8 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
 
         await firestoreService.updateDocument('students', student.id, updateData);
 
-        if (photoFile) {
-          const ok = await syncWithDevice(student.id, formData.name.trim(), photoFile);
+        if (usaFacial && photoFile) {
+          const ok = await syncWithDevice(academyId, student.id, formData.name.trim(), photoFile);
           showToast(ok ? 'Foto atualizada no dispositivo!' : 'Aluno atualizado. Atualize a foto no dispositivo manualmente.', ok ? 'success' : 'warning');
         } else {
           showToast('Aluno atualizado com sucesso!', 'success');
@@ -300,12 +303,16 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
 
       await setDoc(doc(db, 'students', userId), studentData);
 
-      // Sincronizar com dispositivo Intelbras
-      const syncOk = await syncWithDevice(userId, formData.name.trim(), photoFile);
-      if (syncOk) {
-        showToast('Aluno cadastrado e sincronizado com o dispositivo!', 'success');
+      // Sincronizar com dispositivo Intelbras (só se a academia tem leitor facial)
+      if (usaFacial) {
+        const syncOk = await syncWithDevice(academyId, userId, formData.name.trim(), photoFile);
+        if (syncOk) {
+          showToast('Aluno cadastrado e sincronizado com o dispositivo!', 'success');
+        } else {
+          showToast('Aluno cadastrado! Cadastre no dispositivo facial manualmente.', 'warning');
+        }
       } else {
-        showToast('Aluno cadastrado! Cadastre no dispositivo facial manualmente.', 'warning');
+        showToast('Aluno cadastrado com sucesso!', 'success');
       }
 
       // Gerar link de pagamento
@@ -400,7 +407,8 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
 
-      {/* ── Foto ── */}
+      {/* ── Foto (só se a academia tem leitor facial) ── */}
+      {usaFacial && (
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
           Foto do Aluno
@@ -444,6 +452,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
         </div>
         <input ref={fileInputRef} type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
       </div>
+      )}
 
       {/* ── Nome ── */}
       <div>

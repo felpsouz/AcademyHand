@@ -63,7 +63,22 @@ export async function POST(req: NextRequest) {
       return onlineResponse(false, 'Aluno não encontrado');
     }
 
-    const student       = studentDoc.data()!;
+    const student = studentDoc.data()!;
+
+    // A academia vem do próprio cadastro do aluno — é o que amarra a presença
+    // ao tenant certo. Sem isso, o registro não aparece em nenhuma tela.
+    const academyId = student.academyId;
+    if (!academyId) {
+      console.error(`Aluno ${userId} sem academyId — presença não registrada`);
+      return onlineResponse(false, 'Cadastro incompleto. Contate o suporte.');
+    }
+
+    // Academia suspensa não libera acesso
+    const academyDoc = await db.collection('academies').doc(academyId).get();
+    if (!academyDoc.exists || academyDoc.data()?.ativa === false) {
+      return onlineResponse(false, 'Academia inativa');
+    }
+
     const paymentStatus = student.stripePaymentStatus ?? 'pending';
     const isActive      = student.status === 'active';
     const isStripePaid  = paymentStatus === 'active';
@@ -102,6 +117,7 @@ export async function POST(req: NextRequest) {
     const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
     const existingSnap = await db.collection('attendance')
+      .where('academyId', '==', academyId)
       .where('studentId', '==', userId)
       .where('date', '==', dateStr)
       .limit(1)
@@ -109,6 +125,7 @@ export async function POST(req: NextRequest) {
 
     if (existingSnap.empty) {
       await db.collection('attendance').add({
+        academyId,
         studentId:            userId,
         studentName:          student.name,
         date:                 dateStr,

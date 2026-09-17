@@ -1,14 +1,53 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
+import { adminDb } from '@/lib/firebase-admin';
 
-const DEVICE_IP   = process.env.DEVICE_IP   || '192.168.2.100';
-const DEVICE_PORT = process.env.DEVICE_PORT  || '9020';
-const DEVICE_USER = process.env.DEVICE_USER  || 'admin';
-const DEVICE_PASS = process.env.DEVICE_PASS  || 'imperio@2026';
+// Configuração do leitor facial de UMA academia.
+// Cada academia tem seu próprio dispositivo (IP, usuário e senha diferentes),
+// então isso vem do Firestore em academies/{academyId}.device.
+interface DeviceConfig {
+  ip: string;
+  port: string;
+  user: string;
+  pass: string;
+}
 
-const baseUrl = `http://${DEVICE_IP}:${DEVICE_PORT}`;
+// Fallback para o .env — mantém funcionando a academia que já estava
+// configurada antes do sistema virar multi-academia.
+const FALLBACK_DEVICE: DeviceConfig = {
+  ip:   process.env.DEVICE_IP   || '192.168.2.100',
+  port: process.env.DEVICE_PORT || '9020',
+  user: process.env.DEVICE_USER || 'admin',
+  pass: process.env.DEVICE_PASS || '',
+};
 
-function buildDigestHeader(method: string, uri: string, wwwAuth: string): string {
+async function getDeviceConfig(academyId: string): Promise<DeviceConfig | null> {
+  const academyDoc = await adminDb().collection('academies').doc(academyId).get();
+  if (!academyDoc.exists) return null;
+
+  const data = academyDoc.data()!;
+
+  // Academia sem leitor facial: nunca sincroniza (e nunca cai no fallback do
+  // .env, que apontaria para o dispositivo de OUTRA academia).
+  if (data.usaFacial !== true) return null;
+
+  const device = data.device;
+
+  if (device?.ip) {
+    return {
+      ip:   device.ip,
+      port: device.port ?? '9020',
+      user: device.user ?? 'admin',
+      pass: device.pass ?? '',
+    };
+  }
+
+  // Marcada como usaFacial mas sem config própria → usa a do .env
+  // (mantém funcionando a academia original, de antes do multi-tenant)
+  return FALLBACK_DEVICE.pass ? FALLBACK_DEVICE : null;
+}
+
+function buildDigestHeader(cfg: DeviceConfig, method: string, uri: string, wwwAuth: string): string {
   const realm  = wwwAuth.match(/realm="([^"]+)"/)?.[1]  ?? '';
   const nonce  = wwwAuth.match(/nonce="([^"]+)"/)?.[1]  ?? '';
   const opaque = wwwAuth.match(/opaque="([^"]+)"/)?.[1] ?? '';
@@ -16,17 +55,18 @@ function buildDigestHeader(method: string, uri: string, wwwAuth: string): string
   const nc     = '00000001';
   const cnonce = createHash('md5').update(Math.random().toString()).digest('hex').slice(0, 8);
   const md5    = (s: string) => createHash('md5').update(s).digest('hex');
-  const ha1    = md5(`${DEVICE_USER}:${realm}:${DEVICE_PASS}`);
+  const ha1    = md5(`${cfg.user}:${realm}:${cfg.pass}`);
   const ha2    = md5(`${method}:${uri}`);
   const resp   = md5(`${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`);
   return [
-    `Digest username="${DEVICE_USER}"`, `realm="${realm}"`, `nonce="${nonce}"`,
+    `Digest username="${cfg.user}"`, `realm="${realm}"`, `nonce="${nonce}"`,
     `uri="${uri}"`, `qop=${qop}`, `nc=${nc}`, `cnonce="${cnonce}"`,
     `response="${resp}"`, opaque ? `opaque="${opaque}"` : '',
   ].filter(Boolean).join(', ');
 }
 
 async function fetchDigest(
+  cfg: DeviceConfig,
   url: string,
   options: { method: string; headers?: Record<string, string>; body?: string },
   timeoutMs = 10000,
@@ -45,7 +85,7 @@ async function fetchDigest(
     if (!wwwAuth.toLowerCase().includes('digest')) return first;
     return await fetch(url, {
       method:  options.method,
-      headers: { ...(options.headers ?? {}), Authorization: buildDigestHeader(options.method, uri, wwwAuth) },
+      headers: { ...(options.headers ?? {}), Authorization: buildDigestHeader(cfg, options.method, uri, wwwAuth) },
       body:    options.body,
       signal:  controller.signal,
     });
@@ -55,7 +95,8 @@ async function fetchDigest(
 }
 
 // Cadastra usuário via insertMulti com UserList (API oficial Intelbras)
-async function cadastrarUsuario(userId: string, name: string): Promise<{ ok: boolean; detail: string }> {
+async function cadastrarUsuario(cfg: DeviceConfig, userId: string, name: string): Promise<{ ok: boolean; detail: string }> {
+  const baseUrl = `http://${cfg.ip}:${cfg.port}`;
   const url  = `${baseUrl}/cgi-bin/AccessUser.cgi?action=insertMulti`;
   const body = JSON.stringify({
     UserList: [{
@@ -70,14 +111,15 @@ async function cadastrarUsuario(userId: string, name: string): Promise<{ ok: boo
   });
 
   console.log('[sync-user] Cadastrando usuário →', url);
-  const res  = await fetchDigest(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+  const res  = await fetchDigest(cfg, url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
   const text = await res.text();
   console.log('[sync-user] Resposta usuário:', res.status, text);
   return { ok: res.ok, detail: text };
 }
 
 // Cadastra face via AccessFace.cgi com foto em Base64 (API oficial Intelbras)
-async function cadastrarFace(userId: string, imageBuffer: Buffer): Promise<{ ok: boolean; detail: string }> {
+async function cadastrarFace(cfg: DeviceConfig, userId: string, imageBuffer: Buffer): Promise<{ ok: boolean; detail: string }> {
+  const baseUrl = `http://${cfg.ip}:${cfg.port}`;
   const base64 = imageBuffer.toString('base64');
 
   // Tenta insertMulti primeiro (maioria dos modelos)
@@ -87,7 +129,7 @@ async function cadastrarFace(userId: string, imageBuffer: Buffer): Promise<{ ok:
   });
 
   console.log('[sync-user] Enviando face (insertMulti) →', urlMulti);
-  let res  = await fetchDigest(urlMulti, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: bodyMulti });
+  let res  = await fetchDigest(cfg, urlMulti, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: bodyMulti });
   let text = await res.text();
   console.log('[sync-user] Resposta face insertMulti:', res.status, text);
 
@@ -103,7 +145,7 @@ async function cadastrarFace(userId: string, imageBuffer: Buffer): Promise<{ ok:
   });
 
   console.log('[sync-user] Tentando formato SS 7520T →', urlSingle);
-  res  = await fetchDigest(urlSingle, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: bodySingle });
+  res  = await fetchDigest(cfg, urlSingle, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: bodySingle });
   text = await res.text();
   console.log('[sync-user] Resposta face SS7520T:', res.status, text);
 
@@ -112,18 +154,32 @@ async function cadastrarFace(userId: string, imageBuffer: Buffer): Promise<{ ok:
 
 export async function POST(req: NextRequest) {
   try {
-    const formData = await req.formData();
-    const userId   = formData.get('userId') as string | null;
-    const name     = formData.get('name')   as string | null;
-    const photo    = formData.get('photo')  as File   | null;
+    const formData  = await req.formData();
+    const userId    = formData.get('userId')    as string | null;
+    const name      = formData.get('name')      as string | null;
+    const academyId = formData.get('academyId') as string | null;
+    const photo     = formData.get('photo')     as File   | null;
 
-    console.log('[sync-user] Recebido — userId:', userId, '| name:', name, '| photo:', photo?.name ?? 'nenhuma');
+    console.log('[sync-user] Recebido — userId:', userId, '| name:', name, '| academyId:', academyId, '| photo:', photo?.name ?? 'nenhuma');
 
     if (!userId || !name) {
       return NextResponse.json({ ok: false, error: 'userId e name são obrigatórios' }, { status: 400 });
     }
 
-    const { ok: userOk, detail: userDetail } = await cadastrarUsuario(userId, name);
+    if (!academyId) {
+      return NextResponse.json({ ok: false, error: 'academyId é obrigatório' }, { status: 400 });
+    }
+
+    const cfg = await getDeviceConfig(academyId);
+
+    if (!cfg) {
+      return NextResponse.json({
+        ok: false,
+        error: 'Essa academia não tem leitor facial configurado. Cadastre o aluno manualmente no dispositivo.',
+      }, { status: 400 });
+    }
+
+    const { ok: userOk, detail: userDetail } = await cadastrarUsuario(cfg, userId, name);
 
     if (!userOk) {
       return NextResponse.json({
@@ -135,7 +191,7 @@ export async function POST(req: NextRequest) {
 
     if (photo) {
       const imageBuffer = Buffer.from(await photo.arrayBuffer());
-      const { ok: faceOk, detail: faceDetail } = await cadastrarFace(userId, imageBuffer);
+      const { ok: faceOk, detail: faceDetail } = await cadastrarFace(cfg, userId, imageBuffer);
       if (!faceOk) {
         return NextResponse.json({
           ok: false,
@@ -152,9 +208,9 @@ export async function POST(req: NextRequest) {
     const isNetwork = err.cause?.code === 'ECONNREFUSED' || err.cause?.code === 'ENOTFOUND';
     console.error('[sync-user] ERRO:', { name: err.name, message: err.message, cause: err.cause });
     const errorMsg = isTimeout
-      ? `Dispositivo não respondeu em 10s`
+      ? 'Dispositivo não respondeu em 10s'
       : isNetwork
-        ? `Não foi possível conectar ao dispositivo em ${DEVICE_IP}:${DEVICE_PORT}`
+        ? 'Não foi possível conectar ao leitor facial dessa academia'
         : err.message;
     return NextResponse.json({ ok: false, error: errorMsg }, { status: 500 });
   }
