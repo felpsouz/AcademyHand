@@ -35,3 +35,4 @@ export async function PATCH(
     return NextResponse.json({ error: 'Erro interno ao atualizar academia' }, { status: 500 });
   }
 }
+
