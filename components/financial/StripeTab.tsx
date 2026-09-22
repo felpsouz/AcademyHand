@@ -12,6 +12,7 @@ import { Student, PlanKey, Periodicidade, StripePaymentStatus } from '@/types';
 import { PLANS } from '@/lib/plans';
 import { CobrancaAvulsaModal } from './CobrancaAvulsaModal';
 import { Modal } from '@/components/common/Modal';
+import { applyManualPaymentExpiration } from '@/utils/manualPayment';
 
 const statusConfig: Record<StripePaymentStatus, {
   label: string; bg: string; text: string; border: string; icon: React.ReactNode;
@@ -32,7 +33,7 @@ const planColors: Record<PlanKey, string> = {
 const periodicidades: Periodicidade[] = ['mensal', 'trimestral', 'semestral', 'anual'];
 
 export const StripeTab: React.FC = () => {
-  const { userData } = useAuth();
+  const { user, userData } = useAuth();
   const academyId = userData?.academyId;
 
   const [students, setStudents] = useState<Student[]>([]);
@@ -59,7 +60,7 @@ export const StripeTab: React.FC = () => {
         { field: 'academyId', operator: '==', value: academyId },
         { orderByField: 'name', orderDirection: 'asc' }
       );
-      setStudents(data);
+      setStudents(applyManualPaymentExpiration(data));
     } catch (err) {
       console.error('Erro ao carregar alunos:', err);
     } finally {
@@ -68,11 +69,16 @@ export const StripeTab: React.FC = () => {
   };
 
   const generateCheckoutLink = async (student: Student, plano: PlanKey, periodicidade: Periodicidade) => {
+    if (!user) return;
     setGeneratingLink(`${student.id}-${plano}-${periodicidade}`);
     try {
+      const idToken = await user.getIdToken();
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
         body: JSON.stringify({
           mode: 'subscription',
           academyId,
@@ -208,8 +214,8 @@ export const StripeTab: React.FC = () => {
                     )}
                   </div>
 
-                  {hasSubscription ? (
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {hasSubscription && (
                       <button
                         onClick={() => openPortal(student.stripeCustomerId!)}
                         className="flex items-center gap-1 px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition shadow-sm"
@@ -217,24 +223,25 @@ export const StripeTab: React.FC = () => {
                         <ExternalLink className="w-3 h-3" />
                         Portal
                       </button>
-                      <button
-                        onClick={() => setCobrancaStudent(student)}
-                        className="flex items-center gap-1 px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition shadow-sm"
-                      >
-                        <Plus className="w-3 h-3" />
-                        Avulso
-                      </button>
-                    </div>
-                  ) : (
+                    )}
                     <button
-                      onClick={() => setExpandedStudent(isExpanded ? null : student.id)}
-                      className="flex items-center gap-1 px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition shadow-sm flex-shrink-0"
+                      onClick={() => setCobrancaStudent(student)}
+                      className="flex items-center gap-1 px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition shadow-sm"
                     >
-                      <CreditCard className="w-3 h-3" />
-                      Assinar
-                      {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                      <Plus className="w-3 h-3" />
+                      Avulso
                     </button>
-                  )}
+                    {!hasSubscription && (
+                      <button
+                        onClick={() => setExpandedStudent(isExpanded ? null : student.id)}
+                        className="flex items-center gap-1 px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition shadow-sm"
+                      >
+                        <CreditCard className="w-3 h-3" />
+                        Assinar
+                        {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {isExpanded && !hasSubscription && (

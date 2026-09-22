@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Edit2, Trash2, CheckCircle2 } from 'lucide-react';
 import { Student } from '@/types';
 import { firestoreService } from '@/services/firebase/firestore';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface StudentListProps {
   students: Student[];
@@ -25,20 +26,40 @@ const DURATIONS = [
 
 // ─── Modal de confirmação de pagamento manual ─────────────────────────────────
 
+const PAYMENT_METHODS = [
+  { value: 'dinheiro', label: 'Dinheiro' },
+  { value: 'pix',      label: 'Pix' },
+  { value: 'cartao',   label: 'Cartão (fora do Stripe)' },
+];
+
 const ManualPaymentModal: React.FC<{
   student: Student;
   onClose: () => void;
-  onConfirm: (months: number) => Promise<void>;
+  onConfirm: (months: number, amount: number, paymentMethod: string) => Promise<void>;
 }> = ({ student, onClose, onConfirm }) => {
   const [selectedMonths, setSelectedMonths] = useState(1);
+  const [amount, setAmount] = useState(String(student.monthlyFee ?? 0));
+  const [paymentMethod, setPaymentMethod] = useState('dinheiro');
   const [loading, setLoading] = useState(false);
 
   const until = new Date();
   until.setMonth(until.getMonth() + selectedMonths);
 
+  // Sugere o valor automaticamente quando muda a duração (mensalidade × meses),
+  // mas o admin pode sobrescrever se o valor combinado foi outro
+  const handleMonthsChange = (months: number) => {
+    setSelectedMonths(months);
+    setAmount(String((student.monthlyFee ?? 0) * months));
+  };
+
   const handleConfirm = async () => {
+    const valorNumerico = parseFloat(amount.replace(',', '.'));
+    if (!valorNumerico || valorNumerico <= 0) {
+      alert('Informe um valor válido');
+      return;
+    }
     setLoading(true);
-    await onConfirm(selectedMonths);
+    await onConfirm(selectedMonths, valorNumerico, paymentMethod);
     setLoading(false);
   };
 
@@ -60,7 +81,7 @@ const ManualPaymentModal: React.FC<{
           {DURATIONS.map(d => (
             <button
               key={d.months}
-              onClick={() => setSelectedMonths(d.months)}
+              onClick={() => handleMonthsChange(d.months)}
               className={`py-2.5 rounded-xl border-2 text-sm font-medium transition ${
                 selectedMonths === d.months
                   ? 'border-emerald-500 bg-emerald-50 text-emerald-700 ring-2 ring-emerald-300'
@@ -72,10 +93,38 @@ const ManualPaymentModal: React.FC<{
           ))}
         </div>
 
+        <div className="mb-3">
+          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 block">
+            Valor recebido (R$)
+          </label>
+          <input
+            type="text"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            placeholder="0,00"
+          />
+        </div>
+
+        <div className="mb-4">
+          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 block">
+            Forma de pagamento
+          </label>
+          <select
+            value={paymentMethod}
+            onChange={(e) => setPaymentMethod(e.target.value)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          >
+            {PAYMENT_METHODS.map(m => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
+        </div>
+
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-xs text-amber-700">
           Status ficará <strong>ativo</strong> até{' '}
           <strong>{until.toLocaleDateString('pt-BR')}</strong>, depois volta para{' '}
-          <strong>pendente</strong> automaticamente.
+          <strong>pendente</strong> automaticamente. Esse valor também entra na receita do mês.
         </div>
 
         <div className="flex gap-2">
@@ -276,14 +325,16 @@ export const StudentList: React.FC<StudentListProps> = ({
 }) => {
   const [paymentStudent, setPaymentStudent] = useState<Student | null>(null);
   const [toast, setToast]                   = useState<string | null>(null);
+  const { userData } = useAuth();
+  const academyId = userData?.academyId;
 
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
   };
 
-  const handleConfirmPayment = async (months: number) => {
-    if (!paymentStudent) return;
+  const handleConfirmPayment = async (months: number, amount: number, paymentMethod: string) => {
+    if (!paymentStudent || !academyId) return;
 
     const until = new Date();
     until.setMonth(until.getMonth() + months);
@@ -296,7 +347,25 @@ export const StudentList: React.FC<StudentListProps> = ({
       lastPaymentAt:       new Date().toISOString(),
     } as any);
 
+    // Registra o valor recebido como um pagamento de verdade — é isso que
+    // faz a receita do dashboard contar mensalidades pagas em dinheiro/Pix,
+    // não só as que vieram pelo Stripe.
+    await firestoreService.addDocument('payments', {
+      academyId,
+      studentId: paymentStudent.id,
+      amount,
+      description: `Mensalidade manual (${months} ${months === 1 ? 'mês' : 'meses'})`,
+      status: 'paid',
+      type: 'subscription',
+      paymentMethod,
+      source: 'manual',
+      paidAt: new Date().toISOString(),
+    } as any);
+
     setPaymentStudent(null);
+    if (typeof window !== 'undefined' && (window as any).refreshDashboard) {
+      (window as any).refreshDashboard();
+    }
     showToast(
       `Pagamento confirmado para ${paymentStudent.name} por ${months} ${months === 1 ? 'mês' : 'meses'}!`
     );

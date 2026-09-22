@@ -86,7 +86,7 @@ async function syncWithDevice(academyId: string, userId: string, name: string, p
 
 export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) => {
   const { showToast } = useToast();
-  const { userData: adminUserData } = useAuth();
+  const { user: adminUser, userData: adminUserData } = useAuth();
   const academyId = adminUserData?.academyId;
   const academyName = adminUserData?.academyName;
   // Se o campo não existir ainda em academias antigas, assume true (comportamento anterior)
@@ -317,10 +317,14 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
       }
 
       // Gerar link de pagamento
-      if (gerarLinkAoCadastrar) {
+      if (gerarLinkAoCadastrar && adminUser) {
+        const idToken = await adminUser.getIdToken();
         const res = await fetch('/api/stripe/checkout', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
           body: JSON.stringify({
             mode: 'subscription',
             academyId,

@@ -33,6 +33,43 @@ export function adminAuth() {
   return getAdminApp().auth();
 }
 
+export interface UsuarioVerificado {
+  uid: string;
+  role: number;
+  academyId: string;
+}
+
+/**
+ * Verifica que a requisição vem de QUALQUER usuário autenticado (não precisa
+ * ser master). Espera o header: Authorization: Bearer <idToken>
+ * Retorna uid, role e academyId do usuário, lidos do Firestore.
+ */
+export async function verifyUserRequest(request: Request): Promise<UsuarioVerificado> {
+  const authHeader = request.headers.get('authorization') || request.headers.get('Authorization');
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    throw new MasterAuthError('Token de autenticação ausente', 401);
+  }
+
+  const idToken = authHeader.slice('Bearer '.length);
+
+  let uid: string;
+  try {
+    const decoded = await adminAuth().verifyIdToken(idToken);
+    uid = decoded.uid;
+  } catch (error) {
+    throw new MasterAuthError('Token de autenticação inválido ou expirado', 401);
+  }
+
+  const userDoc = await adminDb().collection('users').doc(uid).get();
+  if (!userDoc.exists) {
+    throw new MasterAuthError('Usuário não encontrado', 401);
+  }
+
+  const data = userDoc.data()!;
+  return { uid, role: data.role, academyId: data.academyId };
+}
+
 export class MasterAuthError extends Error {
   status: number;
   constructor(message: string, status = 403) {

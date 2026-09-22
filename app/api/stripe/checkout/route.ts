@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
-import { adminDb } from '@/lib/firebase-admin';
+import { adminDb, verifyUserRequest, MasterAuthError } from '@/lib/firebase-admin';
 import { PlanKey, Periodicidade, PLANS } from '@/lib/plans';
 
 interface SubscriptionBody {
@@ -37,10 +37,26 @@ function periodicidadeParaRecurring(periodicidade: Periodicidade): Stripe.Checko
 
 export async function POST(req: NextRequest) {
   try {
+    // Confirma quem está fazendo a requisição
+    const usuario = await verifyUserRequest(req);
+
     const body = await req.json() as Body;
 
     if (!body.academyId) {
       return NextResponse.json({ error: 'academyId é obrigatório' }, { status: 400 });
+    }
+
+    // A pessoa logada precisa ser da MESMA academia do checkout que está pedindo
+    if (usuario.academyId !== body.academyId && usuario.role !== 2) {
+      return NextResponse.json({ error: 'Sem permissão para essa academia' }, { status: 403 });
+    }
+
+    // E precisa ser: o próprio aluno pagando por si mesmo, OU um admin/master
+    // gerando o link em nome de um aluno. Ninguém pode gerar checkout pra
+    // um aluno de outra pessoa sem ser admin daquela academia.
+    const podeGerar = usuario.uid === body.studentId || usuario.role === 0 || usuario.role === 2;
+    if (!podeGerar) {
+      return NextResponse.json({ error: 'Sem permissão para gerar esse checkout' }, { status: 403 });
     }
 
     // Busca a academia e confirma que ela está ativa e tem chave configurada
@@ -141,6 +157,9 @@ export async function POST(req: NextRequest) {
     }
 
   } catch (error: any) {
+    if (error instanceof MasterAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error(error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

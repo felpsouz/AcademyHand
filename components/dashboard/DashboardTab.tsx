@@ -1,14 +1,16 @@
 'use client'
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Users, DollarSign, CheckCircle2, AlertCircle,
   TrendingUp, CreditCard, History, RefreshCw,
   CheckCircle, Clock, Eye, EyeOff,
 } from 'lucide-react';
-import { firestoreService } from '@/services/firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
+import { db } from '@/services/firebase/config';
 import { useAuth } from '@/contexts/AuthContext';
 import { Student } from '@/types';
+import { applyManualPaymentExpiration } from '@/utils/manualPayment';
 
 interface Payment {
   id: string;
@@ -20,117 +22,127 @@ interface Payment {
   paidAt: string;
 }
 
-interface DashboardStats {
-  totalStudents: number;
-  activeStudents: number;
-  stripeActive: number;
-  stripeOverdue: number;
-  stripePending: number;
-  monthlyRevenue: number;
-  monthlySubscriptions: number;
-  monthlyOneTime: number;
-  todayAttendance: number;
-}
-
 export const DashboardTab: React.FC = () => {
   const { userData } = useAuth();
   const academyId = userData?.academyId;
 
-  const [stats, setStats] = useState<DashboardStats>({
-    totalStudents: 0,
-    activeStudents: 0,
-    stripeActive: 0,
-    stripeOverdue: 0,
-    stripePending: 0,
-    monthlyRevenue: 0,
-    monthlySubscriptions: 0,
-    monthlyOneTime: 0,
-    todayAttendance: 0,
-  });
-  const [recentPayments, setRecentPayments] = useState<(Payment & { studentName?: string })[]>([]);
-  const [loading,     setLoading]     = useState(true);
-  const [refreshKey,  setRefreshKey]  = useState(0);
-  const [hideValues,  setHideValues]  = useState(false);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [todayAttendance, setTodayAttendance] = useState(0);
+  const [loadingStudents, setLoadingStudents] = useState(true);
+  const [loadingPayments, setLoadingPayments] = useState(true);
+  const [hideValues, setHideValues] = useState(false);
 
-  useEffect(() => { loadDashboardData(); }, [refreshKey, academyId]);
-
+  // "Relógio" que força o recálculo da receita periodicamente. Sem isso, se
+  // nada mudar em students/payments exatamente na virada do mês, o cálculo
+  // continuaria usando o mês anterior até algum evento novo disparar o
+  // onSnapshot — o que pode nunca acontecer se o dashboard ficar parado.
+  const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    (window as any).refreshDashboard = () => setRefreshKey(prev => prev + 1);
-    return () => { delete (window as any).refreshDashboard; };
+    const interval = setInterval(() => setNow(new Date()), 60_000); // checa a cada 1 min
+    return () => clearInterval(interval);
   }, []);
 
-  const loadDashboardData = async () => {
-    if (!academyId) {
-      setLoading(false);
-      return;
-    }
+  // Alunos — em tempo real: qualquer mudança (status, pagamento manual,
+  // webhook do Stripe atualizando stripePaymentStatus) aparece na hora.
+  useEffect(() => {
+    if (!academyId) { setLoadingStudents(false); return; }
 
-    try {
-      setLoading(true);
-
-      const students = await firestoreService.getDocuments<Student>('students', {
-        field: 'academyId', operator: '==', value: academyId,
-      });
-      const activeStudents = students.filter(s => s.status === 'active');
-      const stripeActive  = students.filter(s => s.stripePaymentStatus === 'active').length;
-      const stripeOverdue = students.filter(s => s.stripePaymentStatus === 'overdue').length;
-      const stripePending = students.filter(s => !s.stripePaymentStatus || s.stripePaymentStatus === 'pending').length;
-
-      const now            = new Date();
-      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
-      let payments: Payment[] = [];
-      try {
-        payments = await firestoreService.getDocuments<Payment>(
-          'payments',
-          { field: 'academyId', operator: '==', value: academyId },
-          { orderByField: 'paidAt', orderDirection: 'desc' }
-        );
-      } catch (err) {
-        console.warn('Payments não disponível:', err);
+    const q = query(collection(db, 'students'), where('academyId', '==', academyId));
+    const unsubscribe = onSnapshot(
+      q,
+      (snap) => {
+        const data = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Student[];
+        setStudents(applyManualPaymentExpiration(data));
+        setLoadingStudents(false);
+      },
+      (err) => {
+        console.error('Erro ao escutar alunos:', err);
+        setLoadingStudents(false);
       }
+    );
 
-      const monthPayments        = payments.filter(p => new Date(p.paidAt) >= firstDayOfMonth);
-      const monthlyRevenue       = monthPayments.reduce((sum, p) => sum + p.amount, 0);
-      const monthlySubscriptions = monthPayments.filter(p => p.type === 'subscription').reduce((sum, p) => sum + p.amount, 0);
-      const monthlyOneTime       = monthPayments.filter(p => p.type === 'one_time').reduce((sum, p) => sum + p.amount, 0);
+    return () => unsubscribe();
+  }, [academyId]);
 
-      const todayStr = now.toLocaleDateString('pt-BR');
-      let todayCount = 0;
-      try {
-        const att = await firestoreService.getDocuments<any>('attendance', [
-          { field: 'academyId', operator: '==', value: academyId },
-          { field: 'date', operator: '==', value: todayStr },
-        ]);
-        todayCount = att.length;
-      } catch (err) {
-        console.warn('Attendance não disponível:', err);
+  // Pagamentos — em tempo real: é aqui que uma cobrança paga pelo Stripe
+  // (chegando via webhook, no servidor) aparece sem precisar recarregar a página.
+  useEffect(() => {
+    if (!academyId) { setLoadingPayments(false); return; }
+
+    const q = query(
+      collection(db, 'payments'),
+      where('academyId', '==', academyId),
+      orderBy('paidAt', 'desc')
+    );
+    const unsubscribe = onSnapshot(
+      q,
+      (snap) => {
+        const data = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Payment[];
+        setPayments(data);
+        setLoadingPayments(false);
+      },
+      (err) => {
+        console.warn('Payments não disponível (verifique se o índice já foi criado):', err);
+        setLoadingPayments(false);
       }
+    );
 
-      const studentMap = Object.fromEntries(students.map(s => [s.id, s.name]));
-      const recent = payments.slice(0, 5).map(p => ({
-        ...p,
-        studentName: studentMap[p.studentId] ?? 'Aluno',
-      }));
+    return () => unsubscribe();
+  }, [academyId]);
 
-      setRecentPayments(recent);
-      setStats({
-        totalStudents: students.length,
-        activeStudents: activeStudents.length,
-        stripeActive,
-        stripeOverdue,
-        stripePending,
-        monthlyRevenue,
-        monthlySubscriptions,
-        monthlyOneTime,
-        todayAttendance: todayCount,
-      });
-    } catch (err) {
-      console.error('Erro ao carregar dashboard:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Presenças de hoje — também em tempo real
+  useEffect(() => {
+    if (!academyId) { setTodayAttendance(0); return; }
+
+    const todayStr = new Date().toLocaleDateString('pt-BR');
+    const q = query(
+      collection(db, 'attendance'),
+      where('academyId', '==', academyId),
+      where('date', '==', todayStr)
+    );
+    const unsubscribe = onSnapshot(
+      q,
+      (snap) => setTodayAttendance(snap.size),
+      (err) => console.warn('Attendance não disponível:', err)
+    );
+
+    return () => unsubscribe();
+  }, [academyId]);
+
+  // Estatísticas derivadas — recalculadas automaticamente sempre que
+  // students/payments mudarem (não precisa de nenhum "refresh" manual)
+  const stats = useMemo(() => {
+    const activeStudents = students.filter(s => s.status === 'active');
+    const stripeActive  = students.filter(s => s.stripePaymentStatus === 'active').length;
+    const stripeOverdue = students.filter(s => s.stripePaymentStatus === 'overdue').length;
+    const stripePending = students.filter(s => !s.stripePaymentStatus || s.stripePaymentStatus === 'pending').length;
+
+    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthPayments = payments.filter(p => new Date(p.paidAt) >= firstDayOfMonth);
+    const monthlyRevenue = monthPayments.reduce((sum, p) => sum + p.amount, 0);
+    const monthlySubscriptions = monthPayments.filter(p => p.type === 'subscription').reduce((sum, p) => sum + p.amount, 0);
+    const monthlyOneTime = monthPayments.filter(p => p.type === 'one_time').reduce((sum, p) => sum + p.amount, 0);
+
+    return {
+      totalStudents: students.length,
+      activeStudents: activeStudents.length,
+      stripeActive,
+      stripeOverdue,
+      stripePending,
+      monthlyRevenue,
+      monthlySubscriptions,
+      monthlyOneTime,
+    };
+  }, [students, payments, now]);
+
+  const recentPayments = useMemo(() => {
+    const studentMap = Object.fromEntries(students.map(s => [s.id, s.name]));
+    return payments.slice(0, 5).map(p => ({
+      ...p,
+      studentName: studentMap[p.studentId] ?? 'Aluno',
+    }));
+  }, [payments, students]);
 
   const formatCurrency = (v: number) =>
     hideValues
@@ -154,6 +166,8 @@ export const DashboardTab: React.FC = () => {
 
   const pct = (v: number, total: number) => (total > 0 ? Math.round((v / total) * 100) : 0);
 
+  const loading = loadingStudents || loadingPayments;
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -168,6 +182,7 @@ export const DashboardTab: React.FC = () => {
   return (
     <div className="space-y-6">
 
+      {/* Header com botão olhinho */}
       <div className="flex items-center justify-end">
         <button
           onClick={() => setHideValues(prev => !prev)}
@@ -180,6 +195,7 @@ export const DashboardTab: React.FC = () => {
         </button>
       </div>
 
+      {/* Cards principais */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
           <div className="flex items-center justify-between mb-3">
@@ -204,9 +220,9 @@ export const DashboardTab: React.FC = () => {
             <span className="text-sm text-gray-500">Presenças Hoje</span>
             <CheckCircle2 className="w-5 h-5 text-purple-500" />
           </div>
-          <p className="text-3xl font-bold text-gray-900">{maskNumber(stats.todayAttendance)}</p>
+          <p className="text-3xl font-bold text-gray-900">{maskNumber(todayAttendance)}</p>
           <p className="text-xs text-gray-400 mt-1">
-            {hideValues ? '••%' : `${pct(stats.todayAttendance, stats.activeStudents)}% dos ativos`}
+            {hideValues ? '••%' : `${pct(todayAttendance, stats.activeStudents)}% dos ativos`}
           </p>
         </div>
 
@@ -220,6 +236,7 @@ export const DashboardTab: React.FC = () => {
         </div>
       </div>
 
+      {/* Status Stripe + Receita */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
@@ -302,6 +319,7 @@ export const DashboardTab: React.FC = () => {
         </div>
       </div>
 
+      {/* Pagamentos recentes */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
         <h3 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
           <History className="w-4 h-4 text-red-600" />

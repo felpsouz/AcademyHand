@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Student } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
+import { firestoreService } from '@/services/firebase/firestore';
 
 interface Props {
   student: Student;
@@ -14,30 +15,86 @@ const PRODUTOS_PREDEFINIDOS = [
   { label: 'Taxa de Graduação (Troca de Faixa)', valor: 80 },
 ];
 
+const FORMAS_PAGAMENTO_MANUAL = [
+  { value: 'dinheiro', label: 'Dinheiro' },
+  { value: 'pix',      label: 'Pix' },
+  { value: 'cartao',   label: 'Cartão (fora do Stripe)' },
+];
+
 export const CobrancaAvulsaModal: React.FC<Props> = ({ student, onClose }) => {
-  const { userData } = useAuth();
+  const { user, userData } = useAuth();
   const academyId = userData?.academyId;
 
   const [tipo, setTipo] = useState<'predefinido' | 'livre'>('predefinido');
   const [produtoIdx, setProdutoIdx] = useState(0);
   const [descricao, setDescricao] = useState('');
   const [valor, setValor] = useState('');
+  const [jaRecebido, setJaRecebido] = useState(false);
+  const [formaPagamento, setFormaPagamento] = useState('dinheiro');
   const [loading, setLoading] = useState(false);
 
-  const handleGerar = async () => {
+  const getDescricaoEValor = () => {
+    const description = tipo === 'predefinido'
+      ? PRODUTOS_PREDEFINIDOS[produtoIdx].label
+      : descricao;
+    const amount = tipo === 'predefinido'
+      ? PRODUTOS_PREDEFINIDOS[produtoIdx].valor
+      : parseFloat(valor.replace(',', '.'));
+    return { description, amount };
+  };
+
+  // Marca como já recebido em dinheiro/Pix — grava direto como pagamento,
+  // sem gerar nenhum link do Stripe. É isso que faz esse valor contar na
+  // receita do dashboard mesmo sem passar pelo Stripe.
+  const handleMarcarComoRecebido = async () => {
     if (!academyId) {
+      alert('Academia não identificada. Faça login novamente.');
+      return;
+    }
+
+    const { description, amount } = getDescricaoEValor();
+    if (!description || !amount || amount <= 0) {
+      alert('Preencha todos os campos');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await firestoreService.addDocument('payments', {
+        academyId,
+        studentId: student.id,
+        amount,
+        description,
+        status: 'paid',
+        type: 'one_time',
+        paymentMethod: formaPagamento,
+        source: 'manual',
+        paidAt: new Date().toISOString(),
+      } as any);
+
+      if (typeof window !== 'undefined' && (window as any).refreshDashboard) {
+        (window as any).refreshDashboard();
+      }
+
+      alert(`Cobrança de ${student.name} registrada como paga!`);
+      onClose();
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao registrar cobrança');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGerar = async () => {
+    if (!academyId || !user) {
       alert('Academia não identificada. Faça login novamente.');
       return;
     }
 
     setLoading(true);
     try {
-      const description = tipo === 'predefinido'
-        ? PRODUTOS_PREDEFINIDOS[produtoIdx].label
-        : descricao;
-      const amount = tipo === 'predefinido'
-        ? PRODUTOS_PREDEFINIDOS[produtoIdx].valor
-        : parseFloat(valor.replace(',', '.'));
+      const { description, amount } = getDescricaoEValor();
 
       if (!description || !amount || amount <= 0) {
         alert('Preencha todos os campos');
@@ -45,9 +102,13 @@ export const CobrancaAvulsaModal: React.FC<Props> = ({ student, onClose }) => {
         return;
       }
 
+      const idToken = await user.getIdToken();
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
         body: JSON.stringify({
           mode: 'payment',
           academyId,
@@ -147,9 +208,37 @@ export const CobrancaAvulsaModal: React.FC<Props> = ({ student, onClose }) => {
         </div>
       )}
 
-      <div className="bg-gray-50 rounded-xl p-3 text-sm text-gray-600">
-        <p className="font-medium">Formas de pagamento disponíveis:</p>
-        <p className="mt-1 text-gray-500">Cartão de crédito/débito · PIX · Boleto</p>
+      {/* Toggle: gerar link Stripe vs marcar como já pago em dinheiro/Pix */}
+      <div className="border-t border-gray-100 pt-4">
+        <label className="flex items-center gap-2 text-sm text-gray-700 mb-3">
+          <input
+            type="checkbox"
+            checked={jaRecebido}
+            onChange={(e) => setJaRecebido(e.target.checked)}
+            className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+          />
+          Já recebi esse valor agora (dinheiro/Pix/cartão fora do Stripe)
+        </label>
+
+        {jaRecebido ? (
+          <div className="mb-2">
+            <label className="text-sm font-medium text-gray-600">Forma de pagamento</label>
+            <select
+              value={formaPagamento}
+              onChange={(e) => setFormaPagamento(e.target.value)}
+              className="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            >
+              {FORMAS_PAGAMENTO_MANUAL.map(f => (
+                <option key={f.value} value={f.value}>{f.label}</option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <div className="bg-gray-50 rounded-xl p-3 text-sm text-gray-600">
+            <p className="font-medium">Formas de pagamento disponíveis no link:</p>
+            <p className="mt-1 text-gray-500">Cartão de crédito/débito · PIX · Boleto</p>
+          </div>
+        )}
       </div>
 
       <div className="flex gap-2">
@@ -159,13 +248,23 @@ export const CobrancaAvulsaModal: React.FC<Props> = ({ student, onClose }) => {
         >
           Cancelar
         </button>
-        <button
-          onClick={handleGerar}
-          disabled={loading}
-          className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition"
-        >
-          {loading ? 'Gerando...' : 'Gerar link'}
-        </button>
+        {jaRecebido ? (
+          <button
+            onClick={handleMarcarComoRecebido}
+            disabled={loading}
+            className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 transition"
+          >
+            {loading ? 'Salvando...' : 'Confirmar recebimento'}
+          </button>
+        ) : (
+          <button
+            onClick={handleGerar}
+            disabled={loading}
+            className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition"
+          >
+            {loading ? 'Gerando...' : 'Gerar link'}
+          </button>
+        )}
       </div>
     </div>
   );

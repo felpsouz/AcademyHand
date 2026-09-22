@@ -10,6 +10,7 @@ import {
 import { db } from '@/services/firebase/config';
 import { doc, getDoc, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
+import { getStudentDisplayData } from '@/utils/manualPayment';
 
 interface StudentViewProps {
   userId: string;
@@ -62,7 +63,7 @@ const BELT_COLORS: Record<string, string> = {
 };
 
 export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) => {
-  const { userData } = useAuth();
+  const { user, userData } = useAuth();
   const academyId = userData?.academyId;
 
   const [studentData, setStudentData] = useState<StudentData | null>(null);
@@ -82,7 +83,9 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
   const loadStudentData = async () => {
     try {
       const studentDoc = await getDoc(doc(db, 'students', userId));
-      if (studentDoc.exists()) setStudentData(studentDoc.data() as StudentData);
+      if (studentDoc.exists()) {
+        setStudentData(getStudentDisplayData(studentDoc.data() as StudentData));
+      }
     } catch (err) { console.error(err); }
   };
 
@@ -138,12 +141,16 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
   };
 
   const assinarAgora = async () => {
-    if (!studentData?.plano || !studentData?.periodicidade || !academyId) return;
+    if (!studentData?.plano || !studentData?.periodicidade || !academyId || !user) return;
     setAssinando(true);
     try {
+      const idToken = await user.getIdToken();
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
         body: JSON.stringify({
           mode: 'subscription',
           academyId,

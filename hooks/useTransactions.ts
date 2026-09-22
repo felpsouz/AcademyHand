@@ -14,6 +14,14 @@ export const useTransactions = () => {
   const { userData } = useAuth();
   const academyId = userData?.academyId;
 
+  // Função helper para atualizar dashboard (os outros hooks já tinham isso,
+  // esse aqui nunca chamava — por isso transações não refletiam no dashboard)
+  const refreshDashboard = () => {
+    if (typeof window !== 'undefined' && (window as any).refreshDashboard) {
+      (window as any).refreshDashboard();
+    }
+  };
+
   // Carregar transações (sempre filtrado pela academia do usuário logado)
   const loadTransactions = useCallback(async () => {
     if (!academyId) {
@@ -93,6 +101,7 @@ export const useTransactions = () => {
       const newTransaction = await firestoreService.addDocument<Transaction>('transactions', newTransactionData);
       
       setTransactions(prev => [newTransaction, ...prev]);
+      refreshDashboard();
       
       showToast('Transação registrada com sucesso!', 'success');
       return newTransaction;
@@ -135,6 +144,7 @@ export const useTransactions = () => {
       setTransactions(prev => prev.map(t => 
         t.id === id ? { ...t, ...updatedData } : t
       ));
+      refreshDashboard();
       
       showToast('Transação atualizada com sucesso!', 'success');
     } catch (err: any) {
@@ -157,6 +167,7 @@ export const useTransactions = () => {
       await firestoreService.deleteDocument('transactions', id);
       
       setTransactions(prev => prev.filter(t => t.id !== id));
+      refreshDashboard();
       showToast('Transação excluída com sucesso', 'info');
     } catch (err: any) {
       const errorMsg = 'Erro ao excluir transação';

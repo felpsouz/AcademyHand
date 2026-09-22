@@ -5,6 +5,7 @@ import { Student, StudentStatus, BeltLevel } from '@/types';
 import { firestoreService } from '@/services/firebase/firestore';
 import { useToast } from './useToast';
 import { useAuth } from '@/contexts/AuthContext';
+import { applyManualPaymentExpiration } from '@/utils/manualPayment';
 import { validateEmail, validatePhone } from '@/utils/validators';
 
 export const useStudents = () => {
@@ -39,8 +40,9 @@ export const useStudents = () => {
         { orderByField: 'name', orderDirection: 'asc' }
       );
       
-      setStudents(data);
-      return data;
+      const corrigidos = applyManualPaymentExpiration(data);
+      setStudents(corrigidos);
+      return corrigidos;
     } catch (err: any) {
       const errorMsg = 'Erro ao carregar alunos';
       setError(errorMsg);
