@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Student, BeltLevel, StudentStatus } from '@/types';
-import { PlanKey, Periodicidade, PLANS } from '@/lib/plans';
+import { Periodicidade, PlanoAcademia, PERIODICIDADE_LABELS } from '@/lib/plans';
 import { useToast } from '@/hooks/useToast';
 import { useAuth } from '@/contexts/AuthContext';
 import { initializeApp, getApp } from 'firebase/app';
@@ -17,21 +17,6 @@ interface StudentFormProps {
   onSuccess: () => void;
 }
 
-const planColors: Record<PlanKey, string> = {
-  gi:       'border-blue-300 bg-blue-50 text-blue-700',
-  nogi:     'border-violet-300 bg-violet-50 text-violet-700',
-  completo: 'border-indigo-300 bg-indigo-50 text-indigo-700',
-  kids:     'border-green-300 bg-green-50 text-green-700',
-};
-
-const planSelectedColors: Record<PlanKey, string> = {
-  gi:       'border-blue-500 bg-blue-100 ring-2 ring-blue-400',
-  nogi:     'border-violet-500 bg-violet-100 ring-2 ring-violet-400',
-  completo: 'border-indigo-500 bg-indigo-100 ring-2 ring-indigo-400',
-  kids:     'border-green-500 bg-green-100 ring-2 ring-green-400',
-};
-
-const periodicidades: Periodicidade[] = ['mensal', 'trimestral', 'semestral', 'anual'];
 const NOMES_DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 const beltColors: Record<string, string> = {
@@ -114,9 +99,50 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
     monthlyFee: 0,
   });
 
-  const [selectedPlano, setSelectedPlano] = useState<PlanKey>('gi');
-  const [selectedPeriodicidade, setSelectedPeriodicidade] = useState<Periodicidade>('mensal');
+  // Planos são configurados por academia agora — buscados da API, não fixos no código
+  const [planosDisponiveis, setPlanosDisponiveis] = useState<PlanoAcademia[]>([]);
+  const [loadingPlanos, setLoadingPlanos] = useState(true);
+  const [selectedPlanoId, setSelectedPlanoId] = useState<string>('');
+  const [selectedPeriodicidade, setSelectedPeriodicidade] = useState<Periodicidade | ''>('');
   const [gerarLinkAoCadastrar, setGerarLinkAoCadastrar] = useState(true);
+
+  const planoSelecionado = planosDisponiveis.find(p => p.id === selectedPlanoId) ?? null;
+  const periodicidadesDoPlano = planoSelecionado
+    ? (Object.keys(planoSelecionado.precos) as Periodicidade[])
+    : [];
+
+  // Busca os planos da academia do admin logado
+  useEffect(() => {
+    if (!adminUser) return;
+    (async () => {
+      setLoadingPlanos(true);
+      try {
+        const idToken = await adminUser.getIdToken();
+        const res = await fetch('/api/academy/planos', {
+          headers: { Authorization: `Bearer ${idToken}` },
+        });
+        const data = await res.json();
+        const planos: PlanoAcademia[] = res.ok ? (data.planos ?? []) : [];
+        setPlanosDisponiveis(planos);
+
+        // Se não estiver editando um aluno existente, seleciona o primeiro
+        // plano/periodicidade disponível como padrão
+        if (!student && planos.length > 0) {
+          const primeiro = planos[0];
+          setSelectedPlanoId(primeiro.id);
+          const periodos = Object.keys(primeiro.precos) as Periodicidade[];
+          if (periodos.length > 0) {
+            setSelectedPeriodicidade(periodos[0]);
+            setFormData(prev => ({ ...prev, monthlyFee: primeiro.precos[periodos[0]] ?? 0 }));
+          }
+        }
+      } catch (err) {
+        console.error('Erro ao carregar planos:', err);
+      } finally {
+        setLoadingPlanos(false);
+      }
+    })();
+  }, [adminUser, student]);
 
   useEffect(() => {
     if (student) {
@@ -132,7 +158,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
         status: student.status || 'active',
         monthlyFee: student.monthlyFee || 0,
       });
-      if (student.plano) setSelectedPlano(student.plano as PlanKey);
+      if (student.plano) setSelectedPlanoId(student.plano);
       if (student.periodicidade) setSelectedPeriodicidade(student.periodicidade as Periodicidade);
     }
   }, [student]);
@@ -183,6 +209,23 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
     }));
   };
 
+  const selecionarPlano = (plano: PlanoAcademia) => {
+    setSelectedPlanoId(plano.id);
+    const periodos = Object.keys(plano.precos) as Periodicidade[];
+    const periodo = periodos.includes(selectedPeriodicidade as Periodicidade)
+      ? (selectedPeriodicidade as Periodicidade)
+      : periodos[0];
+    setSelectedPeriodicidade(periodo ?? '');
+    setFormData(prev => ({ ...prev, monthlyFee: periodo ? (plano.precos[periodo] ?? 0) : prev.monthlyFee }));
+  };
+
+  const selecionarPeriodicidade = (periodo: Periodicidade) => {
+    setSelectedPeriodicidade(periodo);
+    if (planoSelecionado) {
+      setFormData(prev => ({ ...prev, monthlyFee: planoSelecionado.precos[periodo] ?? 0 }));
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -208,9 +251,9 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
           phone: formData.phone.trim(),
           status: formData.status,
           monthlyFee: formData.monthlyFee,
-          plano: selectedPlano,
-          periodicidade: selectedPeriodicidade,
-          diasPermitidos: PLANS[selectedPlano].diasPermitidos,
+          plano: selectedPlanoId || null,
+          periodicidade: selectedPeriodicidade || null,
+          diasPermitidos: planoSelecionado?.diasPermitidos ?? [],
           updatedAt: new Date().toISOString(),
         };
 
@@ -283,12 +326,12 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
         email: formData.email.trim(),
         phone: formData.phone.trim(),
         status: formData.status,
-        monthlyFee: PLANS[selectedPlano][selectedPeriodicidade].valor,
+        monthlyFee: formData.monthlyFee,
         paymentStatus: 'pending',
         stripePaymentStatus: 'pending',
-        plano: selectedPlano,
-        periodicidade: selectedPeriodicidade,
-        diasPermitidos: PLANS[selectedPlano].diasPermitidos,
+        plano: selectedPlanoId || null,
+        periodicidade: selectedPeriodicidade || null,
+        diasPermitidos: planoSelecionado?.diasPermitidos ?? [],
         lastPayment: now,
         nextPaymentDue: nextMonth.toISOString(),
         totalAttendances: 0,
@@ -316,8 +359,8 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
         showToast('Aluno cadastrado com sucesso!', 'success');
       }
 
-      // Gerar link de pagamento
-      if (gerarLinkAoCadastrar && adminUser) {
+      // Gerar link de pagamento (só se tiver um plano/periodicidade válido selecionado)
+      if (gerarLinkAoCadastrar && adminUser && selectedPlanoId && selectedPeriodicidade) {
         const idToken = await adminUser.getIdToken();
         const res = await fetch('/api/stripe/checkout', {
           method: 'POST',
@@ -331,7 +374,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
             studentId: userId,
             studentEmail: formData.email.trim(),
             studentName: formData.name.trim(),
-            plano: selectedPlano,
+            plano: selectedPlanoId,
             periodicidade: selectedPeriodicidade,
           }),
         });
@@ -340,6 +383,8 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
           setGeneratedLink(url);
           navigator.clipboard.writeText(url);
           showToast('Link de pagamento copiado!', 'success');
+        } else {
+          onSuccess();
         }
       } else {
         onSuccess();
@@ -378,10 +423,12 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
           <p className="text-xs text-gray-700 break-all font-mono leading-relaxed">{generatedLink}</p>
         </div>
 
-        <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-sm text-indigo-700">
-          <strong>Plano:</strong> {PLANS[selectedPlano].label} · {selectedPeriodicidade} ·{' '}
-          <strong>R$ {PLANS[selectedPlano][selectedPeriodicidade].valor.toFixed(2).replace('.', ',')}</strong>
-        </div>
+        {planoSelecionado && selectedPeriodicidade && (
+          <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-sm text-indigo-700">
+            <strong>Plano:</strong> {planoSelecionado.label} · {PERIODICIDADE_LABELS[selectedPeriodicidade as Periodicidade]} ·{' '}
+            <strong>R$ {(planoSelecionado.precos[selectedPeriodicidade as Periodicidade] ?? 0).toFixed(2).replace('.', ',')}</strong>
+          </div>
+        )}
 
         <div className="flex gap-2">
           <button
@@ -549,80 +596,103 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
           <span className="text-sm font-semibold text-gray-800">Plano de Assinatura</span>
         </div>
 
-        <div className="space-y-2 mb-3">
-          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Modalidade</label>
-          <div className="grid grid-cols-2 gap-2">
-            {(Object.keys(PLANS) as PlanKey[]).map(plano => (
-              <button key={plano} type="button"
-                onClick={() => {
-                  setSelectedPlano(plano);
-                  setFormData(prev => ({ ...prev, monthlyFee: PLANS[plano][selectedPeriodicidade].valor }));
-                }}
-                className={`p-2.5 rounded-xl border-2 text-center transition text-xs font-medium ${
-                  selectedPlano === plano ? planSelectedColors[plano] : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
-                }`}
-              >
-                {PLANS[plano].label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="space-y-2 mb-3">
-          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Periodicidade</label>
-          <div className="grid grid-cols-2 gap-2">
-            {periodicidades.map(periodo => (
-              <button key={periodo} type="button"
-                onClick={() => {
-                  setSelectedPeriodicidade(periodo);
-                  setFormData(prev => ({ ...prev, monthlyFee: PLANS[selectedPlano][periodo].valor }));
-                }}
-                className={`py-2 rounded-xl border-2 text-sm font-medium capitalize transition ${
-                  selectedPeriodicidade === periodo
-                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-300'
-                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
-                }`}
-              >
-                {periodo}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className={`p-3 rounded-xl border-2 ${planColors[selectedPlano]}`}>
-          <div className="flex items-center justify-between mb-2">
-            <div>
-              <p className="text-xs font-medium opacity-80">Plano selecionado</p>
-              <p className="text-sm font-semibold mt-0.5">
-                {PLANS[selectedPlano].label} · {selectedPeriodicidade}
-              </p>
-            </div>
-            <p className="text-xl font-bold">
-              R$ {PLANS[selectedPlano][selectedPeriodicidade].valor.toFixed(2).replace('.', ',')}
+        {loadingPlanos ? (
+          <p className="text-sm text-gray-400">Carregando planos...</p>
+        ) : planosDisponiveis.length === 0 ? (
+          <div className="space-y-3">
+            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3">
+              Essa academia ainda não tem planos cadastrados. Você pode cadastrar valores manualmente
+              aqui, ou configurar planos reutilizáveis na aba Financeiro → Gerenciar planos.
             </p>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Mensalidade (R$)</label>
+              <input
+                type="number" step="0.01" name="monthlyFee" value={formData.monthlyFee}
+                onChange={handleChange} disabled={loading}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm text-gray-900"
+              />
+            </div>
           </div>
-          <div className="flex items-center gap-2 pt-2 border-t border-current border-opacity-20">
-            <CalendarDays className="w-3.5 h-3.5 opacity-70 shrink-0" />
-            <div className="flex gap-1 flex-wrap">
-              {NOMES_DIAS.map((nome, idx) => {
-                const permitido = (PLANS[selectedPlano].diasPermitidos as readonly number[]).includes(idx);
-                return (
-                  <span key={idx}
-                    className={`text-xs px-1.5 py-0.5 rounded font-medium ${
-                      permitido ? 'bg-current bg-opacity-20 opacity-100' : 'opacity-30'
+        ) : (
+          <>
+            <div className="space-y-2 mb-3">
+              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Modalidade</label>
+              <div className="grid grid-cols-2 gap-2">
+                {planosDisponiveis.map(plano => (
+                  <button key={plano.id} type="button"
+                    onClick={() => selecionarPlano(plano)}
+                    className={`p-2.5 rounded-xl border-2 text-center transition text-xs font-medium ${
+                      selectedPlanoId === plano.id
+                        ? 'border-indigo-500 bg-indigo-100 ring-2 ring-indigo-400 text-indigo-700'
+                        : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
                     }`}
                   >
-                    {nome}
-                  </span>
-                );
-              })}
+                    {plano.label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        </div>
+
+            {periodicidadesDoPlano.length > 0 && (
+              <div className="space-y-2 mb-3">
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Periodicidade</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {periodicidadesDoPlano.map(periodo => (
+                    <button key={periodo} type="button"
+                      onClick={() => selecionarPeriodicidade(periodo)}
+                      className={`py-2 rounded-xl border-2 text-sm font-medium transition ${
+                        selectedPeriodicidade === periodo
+                          ? 'border-indigo-500 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-300'
+                          : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                      }`}
+                    >
+                      {PERIODICIDADE_LABELS[periodo]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {planoSelecionado && selectedPeriodicidade && (
+              <div className="p-3 rounded-xl border-2 border-indigo-300 bg-indigo-50 text-indigo-700">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className="text-xs font-medium opacity-80">Plano selecionado</p>
+                    <p className="text-sm font-semibold mt-0.5">
+                      {planoSelecionado.label} · {PERIODICIDADE_LABELS[selectedPeriodicidade as Periodicidade]}
+                    </p>
+                  </div>
+                  <p className="text-xl font-bold">
+                    R$ {(planoSelecionado.precos[selectedPeriodicidade as Periodicidade] ?? 0).toFixed(2).replace('.', ',')}
+                  </p>
+                </div>
+                {planoSelecionado.diasPermitidos.length > 0 && planoSelecionado.diasPermitidos.length < 7 && (
+                  <div className="flex items-center gap-2 pt-2 border-t border-current border-opacity-20">
+                    <CalendarDays className="w-3.5 h-3.5 opacity-70 shrink-0" />
+                    <div className="flex gap-1 flex-wrap">
+                      {NOMES_DIAS.map((nome, idx) => {
+                        const permitido = planoSelecionado.diasPermitidos.includes(idx);
+                        return (
+                          <span key={idx}
+                            className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                              permitido ? 'bg-current bg-opacity-20 opacity-100' : 'opacity-30'
+                            }`}
+                          >
+                            {nome}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {/* ── Gerar link ── */}
-      {!isEditMode && (
+      {!isEditMode && planosDisponiveis.length > 0 && (
         <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200 cursor-pointer hover:bg-gray-100 transition">
           <input type="checkbox" checked={gerarLinkAoCadastrar}
             onChange={e => setGerarLinkAoCadastrar(e.target.checked)}

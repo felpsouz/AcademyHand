@@ -125,7 +125,7 @@ export interface Attendance {
 }
 
 // Stripe
-export type PlanKey = 'gi' | 'nogi' | 'completo' | 'kids';
+export type PlanKey = string; // id do plano — dinâmico por academia agora
 export type Periodicidade = 'mensal' | 'trimestral' | 'semestral' | 'anual';
 export type StripePaymentStatus = 'active' | 'overdue' | 'cancelled' | 'pending';
 

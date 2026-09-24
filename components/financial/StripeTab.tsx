@@ -4,13 +4,15 @@ import React, { useEffect, useState } from 'react';
 import {
   CreditCard, RefreshCw, ExternalLink, CheckCircle,
   AlertCircle, XCircle, Clock, Plus, ChevronDown, ChevronUp,
-  Search, Users,
+  Search, Users, Settings,
 } from 'lucide-react';
 import { firestoreService } from '@/services/firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
-import { Student, PlanKey, Periodicidade, StripePaymentStatus } from '@/types';
-import { PLANS } from '@/lib/plans';
+import { Student, StripePaymentStatus } from '@/types';
+import { PlanoAcademia, Periodicidade, PERIODICIDADE_LABELS } from '@/lib/plans';
 import { CobrancaAvulsaModal } from './CobrancaAvulsaModal';
+import { PlanosManagerModal } from './PlanosManagerModal';
+import { PixConfigModal } from './PixConfigModal';
 import { Modal } from '@/components/common/Modal';
 import { applyManualPaymentExpiration } from '@/utils/manualPayment';
 
@@ -23,28 +25,34 @@ const statusConfig: Record<StripePaymentStatus, {
   pending:   { label: 'Pendente',  bg: 'bg-amber-50',    text: 'text-amber-700',   border: 'border-amber-200',   icon: <Clock className="w-3.5 h-3.5" /> },
 };
 
-const planColors: Record<PlanKey, string> = {
-  gi:       'bg-blue-100 text-blue-700',
-  nogi:     'bg-violet-100 text-violet-700',
-  completo: 'bg-indigo-100 text-indigo-700',
-  kids:     'bg-green-100 text-green-700',
-};
-
-const periodicidades: Periodicidade[] = ['mensal', 'trimestral', 'semestral', 'anual'];
+// Paleta genérica — como os planos agora são dinâmicos por academia, não dá
+// pra ter uma cor fixa por id como antes (gi/nogi/...). Roda por índice.
+const PLAN_COLORS = [
+  'bg-blue-100 text-blue-700',
+  'bg-violet-100 text-violet-700',
+  'bg-indigo-100 text-indigo-700',
+  'bg-green-100 text-green-700',
+  'bg-amber-100 text-amber-700',
+  'bg-pink-100 text-pink-700',
+];
 
 export const StripeTab: React.FC = () => {
   const { user, userData } = useAuth();
   const academyId = userData?.academyId;
 
   const [students, setStudents] = useState<Student[]>([]);
+  const [planosDisponiveis, setPlanosDisponiveis] = useState<PlanoAcademia[]>([]);
   const [loading, setLoading] = useState(true);
   const [generatingLink, setGeneratingLink] = useState<string | null>(null);
   const [filter, setFilter] = useState<StripePaymentStatus | 'all'>('all');
   const [search, setSearch] = useState('');
   const [cobrancaStudent, setCobrancaStudent] = useState<Student | null>(null);
   const [expandedStudent, setExpandedStudent] = useState<string | null>(null);
+  const [showPlanosModal, setShowPlanosModal] = useState(false);
+  const [showPixModal, setShowPixModal] = useState(false);
 
   useEffect(() => { loadStudents(); }, [academyId]);
+  useEffect(() => { loadPlanos(); }, [academyId, user]);
 
   const loadStudents = async () => {
     if (!academyId) {
@@ -68,7 +76,33 @@ export const StripeTab: React.FC = () => {
     }
   };
 
-  const generateCheckoutLink = async (student: Student, plano: PlanKey, periodicidade: Periodicidade) => {
+  const loadPlanos = async () => {
+    if (!academyId || !user) return;
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/academy/planos', {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json();
+      if (res.ok) setPlanosDisponiveis(data.planos ?? []);
+    } catch (err) {
+      console.error('Erro ao carregar planos:', err);
+    }
+  };
+
+  const getPlanoLabel = (planoId?: string) => {
+    if (!planoId) return null;
+    const plano = planosDisponiveis.find(p => p.id === planoId);
+    return plano?.label ?? planoId;
+  };
+
+  const getPlanoColor = (planoId?: string) => {
+    if (!planoId) return PLAN_COLORS[0];
+    const idx = planosDisponiveis.findIndex(p => p.id === planoId);
+    return PLAN_COLORS[idx >= 0 ? idx % PLAN_COLORS.length : 0];
+  };
+
+  const generateCheckoutLink = async (student: Student, plano: string, periodicidade: Periodicidade) => {
     if (!user) return;
     setGeneratingLink(`${student.id}-${plano}-${periodicidade}`);
     try {
@@ -140,6 +174,23 @@ export const StripeTab: React.FC = () => {
   return (
     <div className="space-y-5">
 
+      <div className="flex justify-end gap-2">
+        <button
+          onClick={() => setShowPixModal(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition shadow-sm text-gray-600"
+        >
+          <Settings className="w-3.5 h-3.5" />
+          Configurar Pix
+        </button>
+        <button
+          onClick={() => setShowPlanosModal(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition shadow-sm text-gray-600"
+        >
+          <Settings className="w-3.5 h-3.5" />
+          Gerenciar planos
+        </button>
+      </div>
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
           { key: 'all',     label: 'Total',     value: students.length, icon: <Users className="w-4 h-4" />,       color: 'bg-gray-50 border-gray-200 text-gray-700' },
@@ -181,7 +232,7 @@ export const StripeTab: React.FC = () => {
           filtered.map(student => {
             const status = (student.stripePaymentStatus ?? 'pending') as StripePaymentStatus;
             const cfg = statusConfig[status];
-            const planoAtual = student.plano as PlanKey | undefined;
+            const planoLabel = getPlanoLabel(student.plano);
             const isExpanded = expandedStudent === student.id;
             const hasSubscription = !!student.stripeCustomerId;
 
@@ -200,9 +251,9 @@ export const StripeTab: React.FC = () => {
                       <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${cfg.bg} ${cfg.text} ${cfg.border}`}>
                         {cfg.icon} {cfg.label}
                       </span>
-                      {planoAtual && planColors[planoAtual] && (
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${planColors[planoAtual]}`}>
-                          {PLANS[planoAtual].label} · {student.periodicidade}
+                      {planoLabel && (
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getPlanoColor(student.plano)}`}>
+                          {planoLabel} · {student.periodicidade}
                         </span>
                       )}
                     </div>
@@ -231,7 +282,7 @@ export const StripeTab: React.FC = () => {
                       <Plus className="w-3 h-3" />
                       Avulso
                     </button>
-                    {!hasSubscription && (
+                    {!hasSubscription && planosDisponiveis.length > 0 && (
                       <button
                         onClick={() => setExpandedStudent(isExpanded ? null : student.id)}
                         className="flex items-center gap-1 px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition shadow-sm"
@@ -248,13 +299,15 @@ export const StripeTab: React.FC = () => {
                   <div className="border-t border-dashed border-gray-200 p-4 bg-white/60 rounded-b-xl">
                     <p className="text-xs font-medium text-gray-500 mb-3">Selecione o plano para gerar o link:</p>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                      {(Object.keys(PLANS) as PlanKey[]).map(plano =>
-                        periodicidades.map(periodo => {
-                          const isLoading = generatingLink === `${student.id}-${plano}-${periodo}`;
+                      {planosDisponiveis.map(plano =>
+                        (Object.keys(plano.precos) as Periodicidade[]).map(periodo => {
+                          const valor = plano.precos[periodo];
+                          if (!valor) return null;
+                          const isLoading = generatingLink === `${student.id}-${plano.id}-${periodo}`;
                           return (
                             <button
-                              key={`${plano}-${periodo}`}
-                              onClick={() => generateCheckoutLink(student, plano, periodo)}
+                              key={`${plano.id}-${periodo}`}
+                              onClick={() => generateCheckoutLink(student, plano.id, periodo)}
                               disabled={!!generatingLink}
                               className={`flex flex-col items-start p-3 rounded-lg border-2 transition text-left ${
                                 isLoading
@@ -262,12 +315,12 @@ export const StripeTab: React.FC = () => {
                                   : 'border-gray-200 bg-white hover:border-indigo-400 hover:bg-indigo-50'
                               } disabled:opacity-60`}
                             >
-                              <span className={`text-xs font-semibold mb-0.5 ${planColors[plano].split(' ')[1]}`}>
-                                {PLANS[plano].label}
+                              <span className="text-xs font-semibold mb-0.5 text-gray-700">
+                                {plano.label}
                               </span>
-                              <span className="text-xs text-gray-500 capitalize">{periodo}</span>
+                              <span className="text-xs text-gray-500">{PERIODICIDADE_LABELS[periodo]}</span>
                               <span className="text-sm font-bold text-gray-800 mt-1">
-                                R$ {PLANS[plano][periodo].valor.toFixed(2).replace('.', ',')}
+                                R$ {valor.toFixed(2).replace('.', ',')}
                               </span>
                               {isLoading && <span className="text-xs text-indigo-600 mt-1">Gerando...</span>}
                             </button>
@@ -296,6 +349,17 @@ export const StripeTab: React.FC = () => {
           />
         </Modal>
       )}
+
+      <PlanosManagerModal
+        isOpen={showPlanosModal}
+        onClose={() => setShowPlanosModal(false)}
+        onSaved={setPlanosDisponiveis}
+      />
+
+      <PixConfigModal
+        isOpen={showPixModal}
+        onClose={() => setShowPixModal(false)}
+      />
     </div>
   );
 };

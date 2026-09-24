@@ -5,12 +5,13 @@ import {
   Activity, CheckCircle2, Video,
   Clock, PlayCircle, History, CheckCircle,
   AlertCircle, CreditCard, ExternalLink,
-  TrendingUp, Shield, ChevronRight,
+  TrendingUp, Shield, ChevronRight, Copy, QrCode,
 } from 'lucide-react';
 import { db } from '@/services/firebase/config';
 import { doc, getDoc, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import { getStudentDisplayData } from '@/utils/manualPayment';
+import { PixQrCode } from '@/components/common/PixQrCode';
 
 interface StudentViewProps {
   userId: string;
@@ -71,6 +72,8 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
   const [videos, setVideos] = useState<VideoData[]>([]);
   const [loading, setLoading] = useState(true);
   const [assinando, setAssinando] = useState(false);
+  const [pixInfo, setPixInfo] = useState<{ chave?: string; nomeTitular?: string; copiaECola?: string } | null>(null);
+  const [pixCopiado, setPixCopiado] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'pagamento' | 'attendance' | 'videos'>('overview');
 
   useEffect(() => {
@@ -78,7 +81,29 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
     loadStudentData();
     loadAttendance();
     loadVideos();
+    loadPix();
   }, [userId, academyId]);
+
+  const loadPix = async () => {
+    if (!user) return;
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/academy/pix', {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json();
+      if (res.ok) setPixInfo(data.pix);
+    } catch (err) {
+      console.error('Erro ao carregar Pix:', err);
+    }
+  };
+
+  const copiarChavePix = () => {
+    if (!pixInfo?.chave) return;
+    navigator.clipboard.writeText(pixInfo.chave);
+    setPixCopiado(true);
+    setTimeout(() => setPixCopiado(false), 2000);
+  };
 
   const loadStudentData = async () => {
     try {
@@ -421,6 +446,53 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
                       {assinando ? 'Aguarde...' : 'Assinar agora'}
                     </button>
                   )}
+                </div>
+              </div>
+            )}
+
+            {pixInfo && (pixInfo.chave || pixInfo.copiaECola) && (
+              <div className="bg-white rounded-2xl border-2 border-emerald-200 p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <QrCode className="w-5 h-5 text-emerald-600" />
+                  <span className="font-semibold text-gray-800">Pagar via Pix</span>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-5 items-center sm:items-start">
+                  {pixInfo.copiaECola && (
+                    <PixQrCode copiaECola={pixInfo.copiaECola} size={180} />
+                  )}
+
+                  <div className="flex-1 w-full space-y-3">
+                    {pixInfo.nomeTitular && (
+                      <p className="text-sm text-gray-600">
+                        Titular: <strong>{pixInfo.nomeTitular}</strong>
+                      </p>
+                    )}
+                    {pixInfo.chave && (
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">Chave Pix</p>
+                        <div className="flex items-center gap-2">
+                          <code className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 break-all">
+                            {pixInfo.chave}
+                          </code>
+                          <button
+                            onClick={copiarChavePix}
+                            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition flex-shrink-0 ${
+                              pixCopiado
+                                ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                            }`}
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                            {pixCopiado ? 'Copiado!' : 'Copiar'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                      Depois de pagar, avise a academia para confirmarem seu pagamento manualmente.
+                    </p>
+                  </div>
                 </div>
               </div>
             )}

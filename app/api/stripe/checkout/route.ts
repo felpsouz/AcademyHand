@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { adminDb, verifyUserRequest, MasterAuthError } from '@/lib/firebase-admin';
-import { PlanKey, Periodicidade, PLANS } from '@/lib/plans';
+import { PlanKey, Periodicidade, PlanoAcademia } from '@/lib/plans';
 
 interface SubscriptionBody {
   mode: 'subscription';
@@ -84,7 +84,17 @@ export async function POST(req: NextRequest) {
     const stripe = new Stripe(academyData.stripeSecretKey);
 
     if (body.mode === 'subscription') {
-      const planoInfo = PLANS[body.plano][body.periodicidade];
+      const planos: PlanoAcademia[] = academyData.planos ?? [];
+      const plano = planos.find(p => p.id === body.plano);
+
+      if (!plano) {
+        return NextResponse.json({ error: 'Plano não encontrado para essa academia' }, { status: 404 });
+      }
+
+      const valorPlano = plano.precos?.[body.periodicidade];
+      if (!valorPlano || valorPlano <= 0) {
+        return NextResponse.json({ error: 'Essa periodicidade não está disponível para esse plano' }, { status: 400 });
+      }
 
       const session = await stripe.checkout.sessions.create({
         mode: 'subscription',
@@ -93,8 +103,8 @@ export async function POST(req: NextRequest) {
         line_items: [{
           price_data: {
             currency: 'brl',
-            product_data: { name: `${PLANS[body.plano].label} — ${body.periodicidade}` },
-            unit_amount: Math.round(planoInfo.valor * 100),
+            product_data: { name: `${plano.label} — ${body.periodicidade}` },
+            unit_amount: Math.round(valorPlano * 100),
             recurring: periodicidadeParaRecurring(body.periodicidade),
           },
           quantity: 1,

@@ -26,6 +26,9 @@ export async function GET(
       usaGraduacao: data.usaGraduacao !== false,
       usaFacial: data.usaFacial === true,
       device: data.device ?? null,
+      planos: data.planos ?? [],
+      pix: data.pix ?? null,
+      lembretesWhatsapp: data.lembretesWhatsapp === true,
       stripeSecretKey: data.stripeSecretKey ?? '',
       stripeWebhookSecret: data.stripeWebhookSecret ?? '',
     });
@@ -64,6 +67,9 @@ export async function PATCH(
     if (typeof body.usaGraduacao === 'boolean') updateData.usaGraduacao = body.usaGraduacao;
     if (typeof body.usaFacial === 'boolean') updateData.usaFacial = body.usaFacial;
     if (body.device !== undefined) updateData.device = body.device;
+    if (Array.isArray(body.planos)) updateData.planos = body.planos;
+    if (body.pix !== undefined) updateData.pix = body.pix;
+    if (typeof body.lembretesWhatsapp === 'boolean') updateData.lembretesWhatsapp = body.lembretesWhatsapp;
     if (typeof body.stripeSecretKey === 'string') updateData.stripeSecretKey = body.stripeSecretKey || null;
     if (typeof body.stripeWebhookSecret === 'string') updateData.stripeWebhookSecret = body.stripeWebhookSecret || null;
 
