@@ -155,10 +155,14 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
   };
 
   const openPortal = async () => {
-    if (!studentData?.stripeCustomerId || !academyId) return;
+    if (!studentData?.stripeCustomerId || !academyId || !user) return;
+    const idToken = await user.getIdToken();
     const res = await fetch('/api/stripe/portal', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
       body: JSON.stringify({ customerId: studentData.stripeCustomerId, academyId }),
     });
     const { url } = await res.json();

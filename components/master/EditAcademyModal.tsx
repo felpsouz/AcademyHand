@@ -3,6 +3,9 @@
 import { useEffect, useState } from 'react';
 import { Modal } from '@/components/common/Modal';
 import { Button } from '@/components/common/Button';
+import { PlanoAcademia } from '@/lib/plans';
+import { PlanosEditor } from '@/components/financial/PlanosEditor';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface EditAcademyModalProps {
   isOpen: boolean;
@@ -13,6 +16,7 @@ interface EditAcademyModalProps {
 }
 
 export function EditAcademyModal({ isOpen, onClose, academyId, onLoad, onSave }: EditAcademyModalProps) {
+  const { user } = useAuth();
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -26,6 +30,16 @@ export function EditAcademyModal({ isOpen, onClose, academyId, onLoad, onSave }:
   const [devicePass, setDevicePass] = useState('');
   const [stripeSecretKey, setStripeSecretKey] = useState('');
   const [stripeWebhookSecret, setStripeWebhookSecret] = useState('');
+  const [planos, setPlanos] = useState<PlanoAcademia[]>([]);
+  const [pixChave, setPixChave] = useState('');
+  const [pixNomeTitular, setPixNomeTitular] = useState('');
+  const [pixCopiaECola, setPixCopiaECola] = useState('');
+  const [lembretesWhatsapp, setLembretesWhatsapp] = useState(false);
+  const [telefoneTeste, setTelefoneTeste] = useState('');
+  const [testando, setTestando] = useState(false);
+  const [resultadoTeste, setResultadoTeste] = useState<{ ok: boolean; mensagem: string } | null>(null);
+  const [disparando, setDisparando] = useState(false);
+  const [resultadoDisparo, setResultadoDisparo] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen || !academyId) return;
@@ -44,10 +58,71 @@ export function EditAcademyModal({ isOpen, onClose, academyId, onLoad, onSave }:
         setDevicePass(data.device?.pass ?? '');
         setStripeSecretKey(data.stripeSecretKey ?? '');
         setStripeWebhookSecret(data.stripeWebhookSecret ?? '');
+        setPlanos(data.planos ?? []);
+        setPixChave(data.pix?.chave ?? '');
+        setPixNomeTitular(data.pix?.nomeTitular ?? '');
+        setPixCopiaECola(data.pix?.copiaECola ?? '');
+        setLembretesWhatsapp(data.lembretesWhatsapp === true);
       })
       .catch((err) => setErro(err.message || 'Erro ao carregar academia'))
       .finally(() => setCarregando(false));
   }, [isOpen, academyId, onLoad]);
+
+  const handleDispararLembretes = async () => {
+    if (!user || !academyId) return;
+    setDisparando(true);
+    setResultadoDisparo(null);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/whatsapp/disparar-lembretes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ academyId }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setResultadoDisparo(
+          `Enviado: ${data.vencendoEnviados} lembrete(s) de vencimento próximo, ${data.vencidosEnviados} de vencido. ${data.erros > 0 ? `${data.erros} erro(s).` : ''}`
+        );
+      } else {
+        setResultadoDisparo(`Erro: ${data.error}`);
+      }
+    } catch (err: any) {
+      setResultadoDisparo(err.message || 'Erro ao disparar');
+    } finally {
+      setDisparando(false);
+    }
+  };
+
+  const handleTestarWhatsapp = async () => {
+    if (!user || !telefoneTeste) return;
+    setTestando(true);
+    setResultadoTeste(null);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/whatsapp/test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ telefone: telefoneTeste }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setResultadoTeste({ ok: true, mensagem: `Enviado para ${data.numeroEnviado}! Confira o WhatsApp.` });
+      } else {
+        setResultadoTeste({ ok: false, mensagem: data.error + (data.detalhe ? ` — ${JSON.stringify(data.detalhe)}` : '') });
+      }
+    } catch (err: any) {
+      setResultadoTeste({ ok: false, mensagem: err.message || 'Erro ao testar' });
+    } finally {
+      setTestando(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,6 +140,9 @@ export function EditAcademyModal({ isOpen, onClose, academyId, onLoad, onSave }:
           : null,
         stripeSecretKey,
         stripeWebhookSecret,
+        planos,
+        pix: { chave: pixChave, nomeTitular: pixNomeTitular, copiaECola: pixCopiaECola },
+        lembretesWhatsapp,
       });
       onClose();
     } catch (err: any) {
@@ -167,6 +245,91 @@ export function EditAcademyModal({ isOpen, onClose, academyId, onLoad, onSave }:
               placeholder="whsec_..."
             />
           </div>
+
+          <div className="border-t border-gray-100 pt-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Planos</label>
+            <PlanosEditor planos={planos} onChange={setPlanos} />
+          </div>
+
+          <div className="border-t border-gray-100 pt-4 space-y-3">
+            <label className="block text-sm font-medium text-gray-700">Pix</label>
+            <input
+              type="text"
+              value={pixChave}
+              onChange={(e) => setPixChave(e.target.value)}
+              placeholder="Chave Pix"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+            />
+            <input
+              type="text"
+              value={pixNomeTitular}
+              onChange={(e) => setPixNomeTitular(e.target.value)}
+              placeholder="Nome do titular"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+            />
+            <textarea
+              value={pixCopiaECola}
+              onChange={(e) => setPixCopiaECola(e.target.value)}
+              placeholder="Código Pix copia-e-cola (opcional, gera QR Code)"
+              rows={2}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-red-500"
+            />
+          </div>
+
+          <label className="flex items-center gap-2 text-sm text-gray-700 border-t border-gray-100 pt-4">
+            <input
+              type="checkbox"
+              checked={lembretesWhatsapp}
+              onChange={(e) => setLembretesWhatsapp(e.target.checked)}
+              className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+            />
+            Enviar lembretes de pagamento por WhatsApp
+          </label>
+
+          <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+            <p className="text-xs font-medium text-gray-600">Testar envio de WhatsApp</p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={telefoneTeste}
+                onChange={(e) => setTelefoneTeste(e.target.value)}
+                placeholder="(00) 00000-0000"
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              <button
+                type="button"
+                onClick={handleTestarWhatsapp}
+                disabled={testando || !telefoneTeste}
+                className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 transition"
+              >
+                {testando ? 'Enviando...' : 'Enviar teste'}
+              </button>
+            </div>
+            {resultadoTeste && (
+              <p className={`text-xs ${resultadoTeste.ok ? 'text-emerald-700' : 'text-red-600'}`}>
+                {resultadoTeste.mensagem}
+              </p>
+            )}
+          </div>
+
+          {lembretesWhatsapp && (
+            <div className="bg-indigo-50 rounded-xl p-3 space-y-2">
+              <p className="text-xs font-medium text-indigo-700">
+                Disparar lembretes agora (sem esperar o horário automático)
+              </p>
+              <button
+                type="button"
+                onClick={handleDispararLembretes}
+                disabled={disparando}
+                className="w-full py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition"
+              >
+                {disparando ? 'Disparando...' : 'Disparar lembretes dessa academia'}
+              </button>
+              {resultadoDisparo && (
+                <p className="text-xs text-gray-600">{resultadoDisparo}</p>
+              )}
+            </div>
+          )}
 
           {erro && <p className="text-sm text-red-600">{erro}</p>}
 

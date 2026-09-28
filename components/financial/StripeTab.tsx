@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import {
   CreditCard, RefreshCw, ExternalLink, CheckCircle,
   AlertCircle, XCircle, Clock, Plus, ChevronDown, ChevronUp,
-  Search, Users, Settings,
+  Search, Users, Settings, MessageCircle,
 } from 'lucide-react';
 import { firestoreService } from '@/services/firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
@@ -50,6 +50,8 @@ export const StripeTab: React.FC = () => {
   const [expandedStudent, setExpandedStudent] = useState<string | null>(null);
   const [showPlanosModal, setShowPlanosModal] = useState(false);
   const [showPixModal, setShowPixModal] = useState(false);
+  const [disparando, setDisparando] = useState(false);
+  const [resultadoDisparo, setResultadoDisparo] = useState<string | null>(null);
 
   useEffect(() => { loadStudents(); }, [academyId]);
   useEffect(() => { loadPlanos(); }, [academyId, user]);
@@ -73,6 +75,35 @@ export const StripeTab: React.FC = () => {
       console.error('Erro ao carregar alunos:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDispararLembretes = async () => {
+    if (!user) return;
+    setDisparando(true);
+    setResultadoDisparo(null);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/whatsapp/disparar-lembretes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setResultadoDisparo(
+          `Enviado: ${data.vencendoEnviados} lembrete(s) de vencimento próximo, ${data.vencidosEnviados} de vencido.`
+        );
+      } else {
+        setResultadoDisparo(`Erro: ${data.error}`);
+      }
+    } catch (err: any) {
+      setResultadoDisparo(err.message || 'Erro ao disparar');
+    } finally {
+      setDisparando(false);
     }
   };
 
@@ -135,10 +166,14 @@ export const StripeTab: React.FC = () => {
   };
 
   const openPortal = async (customerId: string) => {
-    if (!academyId) return;
+    if (!academyId || !user) return;
+    const idToken = await user.getIdToken();
     const res = await fetch('/api/stripe/portal', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
       body: JSON.stringify({ customerId, academyId }),
     });
     const { url } = await res.json();
@@ -174,21 +209,34 @@ export const StripeTab: React.FC = () => {
   return (
     <div className="space-y-5">
 
-      <div className="flex justify-end gap-2">
-        <button
-          onClick={() => setShowPixModal(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition shadow-sm text-gray-600"
-        >
-          <Settings className="w-3.5 h-3.5" />
-          Configurar Pix
-        </button>
-        <button
-          onClick={() => setShowPlanosModal(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition shadow-sm text-gray-600"
-        >
-          <Settings className="w-3.5 h-3.5" />
-          Gerenciar planos
-        </button>
+      <div className="flex flex-col items-end gap-1.5">
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={handleDispararLembretes}
+            disabled={disparando}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition shadow-sm text-gray-600 disabled:opacity-50"
+          >
+            <MessageCircle className="w-3.5 h-3.5" />
+            {disparando ? 'Disparando...' : 'Disparar lembretes'}
+          </button>
+          <button
+            onClick={() => setShowPixModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition shadow-sm text-gray-600"
+          >
+            <Settings className="w-3.5 h-3.5" />
+            Configurar Pix
+          </button>
+          <button
+            onClick={() => setShowPlanosModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition shadow-sm text-gray-600"
+          >
+            <Settings className="w-3.5 h-3.5" />
+            Gerenciar planos
+          </button>
+        </div>
+        {resultadoDisparo && (
+          <p className="text-xs text-gray-500">{resultadoDisparo}</p>
+        )}
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
