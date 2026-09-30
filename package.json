@@ -11,6 +11,7 @@
     "cf:dev": "wrangler dev"
   },
   "dependencies": {
+    "@cloudflare/containers": "^0.3.7",
     "@stripe/react-stripe-js": "^5.6.1",
     "@stripe/stripe-js": "^8.11.0",
     "firebase": "^12.8.0",
