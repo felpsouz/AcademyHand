@@ -9,7 +9,7 @@ image = "./Dockerfile"
 max_instances = 5
 
 [containers.image_vars]
-NEXT_PUBLIC_FIREBASE_API_KEY = "SUA_API_KEY"
+NEXT_PUBLIC_FIREBASE_API_KEY = "AIzaSyBxNacJyLitxnDxHTEveKjGRHAvx-W8hq8"
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN = "academyhand-8daf1.firebaseapp.com"
 NEXT_PUBLIC_FIREBASE_PROJECT_ID = "academyhand-8daf1"
 NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET = "academyhand-8daf1.firebasestorage.app"
