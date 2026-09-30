@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "cf:deploy": "wrangler deploy",
+    "cf:dev": "wrangler dev"
   },
   "dependencies": {
     "@stripe/react-stripe-js": "^5.6.1",
