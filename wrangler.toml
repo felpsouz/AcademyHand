@@ -8,6 +8,15 @@ class_name = "AcademyHandContainer"
 image = "./Dockerfile"
 max_instances = 5
 
+[containers.image_vars]
+NEXT_PUBLIC_FIREBASE_API_KEY = "SUA_API_KEY"
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN = "academyhand-8daf1.firebaseapp.com"
+NEXT_PUBLIC_FIREBASE_PROJECT_ID = "academyhand-8daf1"
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET = "academyhand-8daf1.firebasestorage.app"
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID = "1091071967079"
+NEXT_PUBLIC_FIREBASE_APP_ID = "1:1091071967079:web:f745b420c683185a9a79c2"
+NEXT_PUBLIC_APP_URL = "https://academyhand.com"
+
 [[durable_objects.bindings]]
 class_name = "AcademyHandContainer"
 name = "ACADEMYHAND_CONTAINER"
