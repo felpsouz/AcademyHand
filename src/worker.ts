@@ -1,21 +1,26 @@
 import { Container, getContainer } from '@cloudflare/containers';
+import { env } from 'cloudflare:workers';
 
-// A classe representa "uma instância do container" — o Cloudflare cuida do
-// ciclo de vida (ligar, desligar depois de inativo, reiniciar se cair).
 export class AcademyHandContainer extends Container {
-  // Porta que o Next.js escuta dentro do container (definida no Dockerfile)
   defaultPort = 3000;
-  // Desliga o container depois de 10 minutos sem nenhuma requisição,
-  // economizando — ele liga de novo sozinho na próxima requisição (leva
-  // uns 2-3 segundos de "cold start" nesse caso)
   sleepAfter = '10m';
+
+  // IMPORTANTE: secrets configurados com "wrangler secret put" ficam
+  // disponíveis só pro Worker — não passam sozinhos pro container.
+  // Precisa repassar explicitamente aqui, um por um.
+  envVars = {
+    FIREBASE_PROJECT_ID: env.FIREBASE_PROJECT_ID,
+    FIREBASE_CLIENT_EMAIL: env.FIREBASE_CLIENT_EMAIL,
+    FIREBASE_PRIVATE_KEY: env.FIREBASE_PRIVATE_KEY,
+    ZAPI_INSTANCE_ID: env.ZAPI_INSTANCE_ID,
+    ZAPI_TOKEN: env.ZAPI_TOKEN,
+    ZAPI_CLIENT_TOKEN: env.ZAPI_CLIENT_TOKEN,
+    CRON_SECRET: env.CRON_SECRET,
+  };
 }
 
 export default {
   async fetch(request: Request, env: any): Promise<Response> {
-    // Todas as requisições vão pra mesma instância do container — como é
-    // uma aplicação web normal (não algo que precisa de múltiplas réplicas
-    // isoladas por usuário), isso é suficiente pro começo.
     const container = getContainer(env.ACADEMYHAND_CONTAINER);
     return container.fetch(request);
   },
