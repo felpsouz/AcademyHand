@@ -3,10 +3,14 @@ main = "src/worker.ts"
 compatibility_date = "2026-09-01"
 compatibility_flags = ["nodejs_compat"]
 
+[observability]
+enabled = true
+
 [[containers]]
 class_name = "AcademyHandContainer"
 image = "./Dockerfile"
 max_instances = 5
+# instance_type = "basic"  # descomente se o container estiver morrendo por falta de memória (hoje o padrão é "lite", 256 MiB)
 
 [containers.image_vars]
 NEXT_PUBLIC_FIREBASE_API_KEY = "AIzaSyBxNacJyLitxnDxHTEveKjGRHAvx-W8hq8"
