@@ -1,16 +1,58 @@
-
 import * as admin from 'firebase-admin';
 
 let app: admin.app.App;
+
+/**
+ * Normaliza a FIREBASE_PRIVATE_KEY vinda de qualquer formato comum:
+ * - com aspas externas e/ou vírgula no final
+ * - com "\n" literais (uma linha só)
+ * - com espaços ou quebras de linha reais no lugar dos \n
+ * - com o JSON inteiro da service account colado
+ */
+export function normalizePrivateKey(raw?: string): string | undefined {
+  if (!raw) return undefined;
+
+  let key = raw.trim();
+
+  // Se colaram o JSON inteiro da service account
+  if (key.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(key);
+      if (typeof parsed.private_key === 'string') key = parsed.private_key;
+    } catch {}
+  }
+
+  // Remove prefixo `"private_key": ` se vier junto
+  key = key.replace(/^"?private_key"?\s*:\s*/i, '');
+
+  // Remove vírgula final e aspas externas
+  key = key.replace(/,\s*$/, '').trim();
+  key = key.replace(/^["']+|["']+$/g, '');
+
+  // Converte \n literais em quebras reais e limpa \r
+  key = key.replace(/\\r/g, '').replace(/\\n/g, '\n').replace(/\r/g, '');
+
+  const match = key.match(
+    /-----BEGIN PRIVATE KEY-----[\s\S]*?-----END PRIVATE KEY-----/
+  );
+  if (!match) return key;
+
+  // Reconstrói o PEM: corpo sem espaços/quebras, em linhas de 64 caracteres
+  const body = match[0]
+    .replace('-----BEGIN PRIVATE KEY-----', '')
+    .replace('-----END PRIVATE KEY-----', '')
+    .replace(/\s+/g, '');
+  const lines = body.match(/.{1,64}/g) ?? [];
+
+  return `-----BEGIN PRIVATE KEY-----\n${lines.join('\n')}\n-----END PRIVATE KEY-----\n`;
+}
 
 function getAdminApp() {
   if (!app) {
     if (admin.apps.length > 0) {
       app = admin.apps[0]!;
     } else {
-      const privateKey = process.env.FIREBASE_PRIVATE_KEY
-        ?.replace(/\\n/g, '\n')
-        .replace(/^"|"$/g, '');
+      const privateKey = normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY);
 
       console.log('[firebase-admin] Inicializando. Variáveis presentes:', {
         temProjectId: !!process.env.FIREBASE_PROJECT_ID,
@@ -34,7 +76,7 @@ function getAdminApp() {
       app = admin.initializeApp({
         credential: admin.credential.cert({
           projectId: process.env.FIREBASE_PROJECT_ID,
-          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL.trim(),
           privateKey,
         }),
       });
