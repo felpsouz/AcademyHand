@@ -1,5 +1,4 @@
 import { Container, getContainer } from '@cloudflare/containers';
-import { env } from 'cloudflare:workers';
 
 const SECRET_KEYS = [
   'FIREBASE_PROJECT_ID',
@@ -13,12 +12,12 @@ const SECRET_KEYS = [
 
 // Secrets do Worker não passam sozinhos pro container: é preciso repassar um por um.
 // Só repassa os que existem e avisa no log os que estão faltando.
-function buildEnvVars(): Record<string, string> {
+function buildEnvVars(workerEnv: any): Record<string, string> {
   const vars: Record<string, string> = {};
   const missing: string[] = [];
 
   for (const key of SECRET_KEYS) {
-    const value = (env as any)[key];
+    const value = workerEnv?.[key];
     if (typeof value === 'string' && value !== '') {
       vars[key] = value;
     } else {
@@ -38,7 +37,11 @@ function buildEnvVars(): Record<string, string> {
 export class AcademyHandContainer extends Container {
   defaultPort = 3000;
   sleepAfter = '10m';
-  envVars = buildEnvVars();
+
+  constructor(ctx: any, env: any) {
+    super(ctx, env);
+    this.envVars = buildEnvVars(env);
+  }
 
   onError(error: unknown) {
     console.error('[container] erro:', error);
@@ -51,7 +54,9 @@ export class AcademyHandContainer extends Container {
 
 export default {
   async fetch(request: Request, env: any): Promise<Response> {
-    const container = getContainer(env.ACADEMYHAND_CONTAINER);
+    // O nome da instância força um container novo (com imagem e secrets atuais).
+    // Para forçar outra troca no futuro, mude 'v2' para 'v3' e assim por diante.
+    const container = getContainer(env.ACADEMYHAND_CONTAINER, 'v2');
     return container.fetch(request);
   },
 };
