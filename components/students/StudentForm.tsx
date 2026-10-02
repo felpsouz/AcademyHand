@@ -19,6 +19,16 @@ interface StudentFormProps {
 
 const NOMES_DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
+const VEZES_POR_SEMANA = [
+  { value: '1', label: '1x por semana' },
+  { value: '2', label: '2x por semana' },
+  { value: '3', label: '3x por semana' },
+  { value: '4', label: '4x por semana' },
+  { value: '5', label: '5x por semana' },
+  { value: '6', label: '6x por semana' },
+  { value: '7', label: 'Livre (todos os dias)' },
+];
+
 const beltColors: Record<string, string> = {
   'Branca':          'bg-white border border-gray-300',
   'Azul':            'bg-blue-500',
@@ -48,6 +58,58 @@ const kidsBelts = [
   'Laranja-Branca', 'Laranja', 'Laranja-Preta',
   'Verde-Branca', 'Verde', 'Verde-Preta',
 ];
+
+// ── Helpers de máscara e validação ───────────────────────────────────────────
+
+function onlyDigits(value: string): string {
+  return value.replace(/\D/g, '');
+}
+
+function maskCPF(value: string): string {
+  const d = onlyDigits(value).slice(0, 11);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `${d.slice(0, 3)}.${d.slice(3)}`;
+  if (d.length <= 9) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6)}`;
+  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+}
+
+function maskPhone(value: string): string {
+  const d = onlyDigits(value).slice(0, 11);
+  if (d.length <= 2) return d;
+  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+}
+
+function validarCPF(value: string): boolean {
+  const d = onlyDigits(value);
+  if (d.length !== 11 || /^(\d)\1+$/.test(d)) return false;
+
+  let soma = 0;
+  for (let i = 0; i < 9; i++) soma += Number(d[i]) * (10 - i);
+  let resto = (soma * 10) % 11;
+  if (resto === 10) resto = 0;
+  if (resto !== Number(d[9])) return false;
+
+  soma = 0;
+  for (let i = 0; i < 10; i++) soma += Number(d[i]) * (11 - i);
+  resto = (soma * 10) % 11;
+  if (resto === 10) resto = 0;
+  return resto === Number(d[10]);
+}
+
+function hojeISO(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+// Converte "YYYY-MM-DD" em ISO ao meio-dia local, para não "voltar um dia" por fuso horário
+function dataParaISO(dateStr: string): string {
+  return new Date(`${dateStr}T12:00:00`).toISOString();
+}
 
 async function syncWithDevice(academyId: string, userId: string, name: string, photoFile: File | null) {
   try {
@@ -93,18 +155,24 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
     name: '',
     email: '',
     password: '',
+    birthDate: '',
+    cpf: '',
     phone: '',
+    emergencyName: '',
+    emergencyPhone: '',
+    vezesPorSemana: '',
+    monthlyFee: 0,
+    dueDate: '',
     belt: 'Branca' as BeltLevel,
     status: 'active' as StudentStatus,
-    monthlyFee: 0,
   });
 
-  // Planos são configurados por academia agora — buscados da API, não fixos no código
+  // Planos de assinatura online (Stripe) configurados por academia — opcionais
   const [planosDisponiveis, setPlanosDisponiveis] = useState<PlanoAcademia[]>([]);
   const [loadingPlanos, setLoadingPlanos] = useState(true);
   const [selectedPlanoId, setSelectedPlanoId] = useState<string>('');
   const [selectedPeriodicidade, setSelectedPeriodicidade] = useState<Periodicidade | ''>('');
-  const [gerarLinkAoCadastrar, setGerarLinkAoCadastrar] = useState(true);
+  const [gerarLinkAoCadastrar, setGerarLinkAoCadastrar] = useState(false);
 
   const planoSelecionado = planosDisponiveis.find(p => p.id === selectedPlanoId) ?? null;
   const periodicidadesDoPlano = planoSelecionado
@@ -124,39 +192,34 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
         const data = await res.json();
         const planos: PlanoAcademia[] = res.ok ? (data.planos ?? []) : [];
         setPlanosDisponiveis(planos);
-
-        // Se não estiver editando um aluno existente, seleciona o primeiro
-        // plano/periodicidade disponível como padrão
-        if (!student && planos.length > 0) {
-          const primeiro = planos[0];
-          setSelectedPlanoId(primeiro.id);
-          const periodos = Object.keys(primeiro.precos) as Periodicidade[];
-          if (periodos.length > 0) {
-            setSelectedPeriodicidade(periodos[0]);
-            setFormData(prev => ({ ...prev, monthlyFee: primeiro.precos[periodos[0]] ?? 0 }));
-          }
-        }
       } catch (err) {
         console.error('Erro ao carregar planos:', err);
       } finally {
         setLoadingPlanos(false);
       }
     })();
-  }, [adminUser, student]);
+  }, [adminUser]);
 
   useEffect(() => {
     if (student) {
       setIsEditMode(true);
+      const s = student as any;
       const beltValue = student.belt || 'Branca';
       setIsKids(kidsBelts.includes(beltValue));
       setFormData({
         name: student.name || '',
         email: student.email || '',
         password: '',
-        phone: student.phone || '',
+        birthDate: s.birthDate || '',
+        cpf: maskCPF(s.cpf || ''),
+        phone: maskPhone(student.phone || ''),
+        emergencyName: s.emergencyContact?.name || '',
+        emergencyPhone: maskPhone(s.emergencyContact?.phone || ''),
+        vezesPorSemana: s.vezesPorSemana ? String(s.vezesPorSemana) : '',
+        monthlyFee: student.monthlyFee || 0,
+        dueDate: student.nextPaymentDue ? String(student.nextPaymentDue).slice(0, 10) : '',
         belt: beltValue,
         status: student.status || 'active',
-        monthlyFee: student.monthlyFee || 0,
       });
       if (student.plano) setSelectedPlanoId(student.plano);
       if (student.periodicidade) setSelectedPeriodicidade(student.periodicidade as Periodicidade);
@@ -165,10 +228,13 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: name === 'monthlyFee' ? parseFloat(value) || 0 : value,
-    }));
+
+    let novoValor: string | number = value;
+    if (name === 'monthlyFee') novoValor = parseFloat(value) || 0;
+    else if (name === 'cpf') novoValor = maskCPF(value);
+    else if (name === 'phone' || name === 'emergencyPhone') novoValor = maskPhone(value);
+
+    setFormData(prev => ({ ...prev, [name]: novoValor }));
   };
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -226,6 +292,38 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
     }
   };
 
+  // Retorna a mensagem do primeiro erro encontrado, ou null se estiver tudo certo
+  const validarFormulario = (): string | null => {
+    const nome = formData.name.trim();
+    if (nome.split(/\s+/).filter(Boolean).length < 2) return 'Informe o nome completo (nome e sobrenome)';
+
+    if (!formData.email.trim()) return 'E-mail é obrigatório';
+    if (!/^\S+@\S+\.\S+$/.test(formData.email.trim())) return 'E-mail inválido';
+
+    if (!isEditMode && (!formData.password || formData.password.length < 6)) {
+      return 'A senha de acesso deve ter no mínimo 6 caracteres';
+    }
+
+    if (!formData.birthDate) return 'Data de nascimento é obrigatória';
+    if (formData.birthDate > hojeISO()) return 'Data de nascimento não pode ser no futuro';
+    if (formData.birthDate < '1900-01-01') return 'Data de nascimento inválida';
+
+    if (!validarCPF(formData.cpf)) return 'CPF inválido';
+
+    if (!formData.vezesPorSemana) return 'Selecione quantas vezes por semana o aluno treina';
+
+    if (!formData.monthlyFee || formData.monthlyFee <= 0) return 'Informe o valor pago do plano';
+
+    if (!formData.dueDate) return 'Data de vencimento é obrigatória';
+
+    if (onlyDigits(formData.phone).length < 10) return 'Contato pessoal inválido (informe DDD + número)';
+
+    if (!formData.emergencyName.trim()) return 'Nome do contato de emergência é obrigatório';
+    if (onlyDigits(formData.emergencyPhone).length < 10) return 'Telefone do contato de emergência inválido (informe DDD + número)';
+
+    return null;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -234,26 +332,37 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
       return;
     }
 
-    if (!formData.name.trim()) { showToast('Nome é obrigatório', 'error'); return; }
-    if (!formData.email.trim()) { showToast('Email é obrigatório', 'error'); return; }
-    if (!isEditMode && (!formData.password || formData.password.length < 6)) {
-      showToast('Senha deve ter no mínimo 6 caracteres', 'error');
+    const erro = validarFormulario();
+    if (erro) {
+      showToast(erro, 'error');
       return;
     }
 
     try {
       setLoading(true);
 
+      const dadosCadastrais = {
+        name: formData.name.trim(),
+        email: formData.email.trim(),
+        birthDate: formData.birthDate,
+        cpf: onlyDigits(formData.cpf),
+        phone: formData.phone.trim(),
+        emergencyContact: {
+          name: formData.emergencyName.trim(),
+          phone: formData.emergencyPhone.trim(),
+        },
+        vezesPorSemana: Number(formData.vezesPorSemana),
+        monthlyFee: formData.monthlyFee,
+        nextPaymentDue: dataParaISO(formData.dueDate),
+        status: formData.status,
+        plano: selectedPlanoId || null,
+        periodicidade: selectedPeriodicidade || null,
+        diasPermitidos: planoSelecionado?.diasPermitidos ?? [],
+      };
+
       if (isEditMode && student) {
         const updateData: any = {
-          name: formData.name.trim(),
-          email: formData.email.trim(),
-          phone: formData.phone.trim(),
-          status: formData.status,
-          monthlyFee: formData.monthlyFee,
-          plano: selectedPlanoId || null,
-          periodicidade: selectedPeriodicidade || null,
-          diasPermitidos: planoSelecionado?.diasPermitidos ?? [],
+          ...dadosCadastrais,
           updatedAt: new Date().toISOString(),
         };
 
@@ -275,7 +384,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
         return;
       }
 
-      // Criar conta Firebase Auth
+      // Criar conta Firebase Auth (e-mail + senha de acesso do aluno)
       let secondaryAuth;
       let userId;
 
@@ -305,8 +414,6 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
       }
 
       const now = new Date().toISOString();
-      const nextMonth = new Date();
-      nextMonth.setMonth(nextMonth.getMonth() + 1);
 
       // IMPORTANTE: academyId (e academyName/usaGraduacao denormalizados) precisam
       // vir junto, senão o aluno cai fora do isolamento multi-tenant e as regras
@@ -322,18 +429,10 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
 
       const studentData: any = {
         academyId,
-        name: formData.name.trim(),
-        email: formData.email.trim(),
-        phone: formData.phone.trim(),
-        status: formData.status,
-        monthlyFee: formData.monthlyFee,
+        ...dadosCadastrais,
         paymentStatus: 'pending',
         stripePaymentStatus: 'pending',
-        plano: selectedPlanoId || null,
-        periodicidade: selectedPeriodicidade || null,
-        diasPermitidos: planoSelecionado?.diasPermitidos ?? [],
         lastPayment: now,
-        nextPaymentDue: nextMonth.toISOString(),
         totalAttendances: 0,
         createdAt: now,
         updatedAt: now,
@@ -455,6 +554,8 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
 
   // ── Form ───────────────────────────────────────────────────────────────────
   const currentBelts = isKids ? kidsBelts : adultBelts;
+  const inputClass =
+    'w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm text-gray-900';
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -506,44 +607,119 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
       </div>
       )}
 
-      {/* ── Nome ── */}
+      {/* ── 1) Nome completo ── */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo *</label>
         <input type="text" name="name" value={formData.name} onChange={handleChange}
-          required disabled={loading}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm text-gray-900" />
+          required disabled={loading} autoComplete="name"
+          className={inputClass} />
       </div>
 
-      {/* ── Email ── */}
+      {/* ── 2) E-mail ── */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">E-mail *</label>
         <input type="email" name="email" value={formData.email} onChange={handleChange}
           required disabled={loading || isEditMode}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm text-gray-900 disabled:bg-gray-100" />
-        {isEditMode && <p className="text-xs text-gray-400 mt-1">Email não pode ser alterado</p>}
+          className={`${inputClass} disabled:bg-gray-100`} />
+        {isEditMode && <p className="text-xs text-gray-400 mt-1">E-mail não pode ser alterado</p>}
       </div>
 
-      {/* ── Senha ── */}
+      {/* ── Senha de acesso (só no cadastro) ── */}
       {!isEditMode && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Senha de Acesso *</label>
           <input type="password" name="password" value={formData.password} onChange={handleChange}
-            required placeholder="Mínimo 6 caracteres" disabled={loading}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm text-gray-900" />
+            required minLength={6} placeholder="Mínimo 6 caracteres" disabled={loading}
+            autoComplete="new-password"
+            className={inputClass} />
+          <p className="text-xs text-gray-400 mt-1">Será usada pelo aluno para acessar o sistema.</p>
         </div>
       )}
 
-      {/* ── Telefone ── */}
+      {/* ── 3) Data de nascimento e 4) CPF ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Data de Nascimento *</label>
+          <input type="date" name="birthDate" value={formData.birthDate} onChange={handleChange}
+            required disabled={loading} max={hojeISO()} min="1900-01-01"
+            className={inputClass} />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">CPF *</label>
+          <input type="text" name="cpf" value={formData.cpf} onChange={handleChange}
+            required disabled={loading} inputMode="numeric" placeholder="000.000.000-00" maxLength={14}
+            className={inputClass} />
+        </div>
+      </div>
+
+      {/* ── 8) Contato pessoal ── */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Contato Pessoal *</label>
         <input type="tel" name="phone" value={formData.phone} onChange={handleChange}
-          placeholder="(00) 00000-0000" disabled={loading}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm text-gray-900" />
+          required disabled={loading} placeholder="(00) 00000-0000" maxLength={15}
+          className={inputClass} />
+      </div>
+
+      {/* ── 9) Contato de emergência ── */}
+      <div className="border-t border-gray-100 pt-4">
+        <p className="text-sm font-semibold text-gray-800 mb-3">Contato de Emergência</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nome *</label>
+            <input type="text" name="emergencyName" value={formData.emergencyName} onChange={handleChange}
+              required disabled={loading}
+              className={inputClass} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Telefone *</label>
+            <input type="tel" name="emergencyPhone" value={formData.emergencyPhone} onChange={handleChange}
+              required disabled={loading} placeholder="(00) 00000-0000" maxLength={15}
+              className={inputClass} />
+          </div>
+        </div>
+      </div>
+
+      {/* ── 5) Plano, 6) Valor e 7) Vencimento ── */}
+      <div className="border-t border-gray-100 pt-4 space-y-4">
+        <div className="flex items-center gap-2">
+          <CreditCard className="w-4 h-4 text-indigo-500" />
+          <span className="text-sm font-semibold text-gray-800">Plano e Pagamento</span>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Plano — quantas vezes por semana treina? *
+          </label>
+          <select name="vezesPorSemana" value={formData.vezesPorSemana} onChange={handleChange}
+            required disabled={loading}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm text-gray-900">
+            <option value="">Selecione...</option>
+            {VEZES_POR_SEMANA.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Valor pago do plano (R$) *</label>
+            <input type="number" step="0.01" min="0" name="monthlyFee"
+              value={formData.monthlyFee || ''} onChange={handleChange}
+              required disabled={loading} placeholder="0,00"
+              className={inputClass} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Data de Vencimento *</label>
+            <input type="date" name="dueDate" value={formData.dueDate} onChange={handleChange}
+              required disabled={loading}
+              className={inputClass} />
+          </div>
+        </div>
       </div>
 
       {/* ── Faixa (só aparece se a academia usa sistema de graduação) ── */}
       {usaGraduacao && (
-        <div>
+        <div className="border-t border-gray-100 pt-4">
           <div className="flex items-center justify-between mb-2">
             <label className="block text-sm font-medium text-gray-700">Faixa *</label>
             <div className="flex rounded-lg overflow-hidden border border-gray-300 text-xs">
@@ -589,119 +765,102 @@ export const StudentForm: React.FC<StudentFormProps> = ({ student, onSuccess }) 
         </select>
       </div>
 
-      {/* ── Plano ── */}
-      <div className="border-t border-gray-100 pt-4">
-        <div className="flex items-center gap-2 mb-3">
-          <CreditCard className="w-4 h-4 text-indigo-500" />
-          <span className="text-sm font-semibold text-gray-800">Plano de Assinatura</span>
-        </div>
+      {/* ── Assinatura online (Stripe) — opcional, só se a academia tem planos cadastrados ── */}
+      {!loadingPlanos && planosDisponiveis.length > 0 && (
+        <div className="border-t border-gray-100 pt-4">
+          <p className="text-sm font-semibold text-gray-800 mb-1">Assinatura online (opcional)</p>
+          <p className="text-xs text-gray-500 mb-3">
+            Escolha um plano para gerar o link de cobrança automática. Ao escolher, o valor acima
+            é preenchido com o preço do plano e pode ser ajustado.
+          </p>
 
-        {loadingPlanos ? (
-          <p className="text-sm text-gray-400">Carregando planos...</p>
-        ) : planosDisponiveis.length === 0 ? (
-          <div className="space-y-3">
-            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3">
-              Essa academia ainda não tem planos cadastrados. Você pode cadastrar valores manualmente
-              aqui, ou configurar planos reutilizáveis na aba Financeiro → Gerenciar planos.
-            </p>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Mensalidade (R$)</label>
-              <input
-                type="number" step="0.01" name="monthlyFee" value={formData.monthlyFee}
-                onChange={handleChange} disabled={loading}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm text-gray-900"
-              />
+          <div className="space-y-2 mb-3">
+            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Modalidade</label>
+            <div className="grid grid-cols-2 gap-2">
+              {planosDisponiveis.map(plano => (
+                <button key={plano.id} type="button"
+                  onClick={() => selecionarPlano(plano)}
+                  className={`p-2.5 rounded-xl border-2 text-center transition text-xs font-medium ${
+                    selectedPlanoId === plano.id
+                      ? 'border-indigo-500 bg-indigo-100 ring-2 ring-indigo-400 text-indigo-700'
+                      : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                  }`}
+                >
+                  {plano.label}
+                </button>
+              ))}
             </div>
           </div>
-        ) : (
-          <>
+
+          {periodicidadesDoPlano.length > 0 && (
             <div className="space-y-2 mb-3">
-              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Modalidade</label>
+              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Periodicidade</label>
               <div className="grid grid-cols-2 gap-2">
-                {planosDisponiveis.map(plano => (
-                  <button key={plano.id} type="button"
-                    onClick={() => selecionarPlano(plano)}
-                    className={`p-2.5 rounded-xl border-2 text-center transition text-xs font-medium ${
-                      selectedPlanoId === plano.id
-                        ? 'border-indigo-500 bg-indigo-100 ring-2 ring-indigo-400 text-indigo-700'
+                {periodicidadesDoPlano.map(periodo => (
+                  <button key={periodo} type="button"
+                    onClick={() => selecionarPeriodicidade(periodo)}
+                    className={`py-2 rounded-xl border-2 text-sm font-medium transition ${
+                      selectedPeriodicidade === periodo
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-300'
                         : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
                     }`}
                   >
-                    {plano.label}
+                    {PERIODICIDADE_LABELS[periodo]}
                   </button>
                 ))}
               </div>
             </div>
+          )}
 
-            {periodicidadesDoPlano.length > 0 && (
-              <div className="space-y-2 mb-3">
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Periodicidade</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {periodicidadesDoPlano.map(periodo => (
-                    <button key={periodo} type="button"
-                      onClick={() => selecionarPeriodicidade(periodo)}
-                      className={`py-2 rounded-xl border-2 text-sm font-medium transition ${
-                        selectedPeriodicidade === periodo
-                          ? 'border-indigo-500 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-300'
-                          : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
-                      }`}
-                    >
-                      {PERIODICIDADE_LABELS[periodo]}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {planoSelecionado && selectedPeriodicidade && (
-              <div className="p-3 rounded-xl border-2 border-indigo-300 bg-indigo-50 text-indigo-700">
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <p className="text-xs font-medium opacity-80">Plano selecionado</p>
-                    <p className="text-sm font-semibold mt-0.5">
-                      {planoSelecionado.label} · {PERIODICIDADE_LABELS[selectedPeriodicidade as Periodicidade]}
-                    </p>
-                  </div>
-                  <p className="text-xl font-bold">
-                    R$ {(planoSelecionado.precos[selectedPeriodicidade as Periodicidade] ?? 0).toFixed(2).replace('.', ',')}
+          {planoSelecionado && selectedPeriodicidade && (
+            <div className="p-3 rounded-xl border-2 border-indigo-300 bg-indigo-50 text-indigo-700 mb-3">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <p className="text-xs font-medium opacity-80">Plano selecionado</p>
+                  <p className="text-sm font-semibold mt-0.5">
+                    {planoSelecionado.label} · {PERIODICIDADE_LABELS[selectedPeriodicidade as Periodicidade]}
                   </p>
                 </div>
-                {planoSelecionado.diasPermitidos.length > 0 && planoSelecionado.diasPermitidos.length < 7 && (
-                  <div className="flex items-center gap-2 pt-2 border-t border-current border-opacity-20">
-                    <CalendarDays className="w-3.5 h-3.5 opacity-70 shrink-0" />
-                    <div className="flex gap-1 flex-wrap">
-                      {NOMES_DIAS.map((nome, idx) => {
-                        const permitido = planoSelecionado.diasPermitidos.includes(idx);
-                        return (
-                          <span key={idx}
-                            className={`text-xs px-1.5 py-0.5 rounded font-medium ${
-                              permitido ? 'bg-current bg-opacity-20 opacity-100' : 'opacity-30'
-                            }`}
-                          >
-                            {nome}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
+                <p className="text-xl font-bold">
+                  R$ {(planoSelecionado.precos[selectedPeriodicidade as Periodicidade] ?? 0).toFixed(2).replace('.', ',')}
+                </p>
               </div>
-            )}
-          </>
-        )}
-      </div>
+              {planoSelecionado.diasPermitidos.length > 0 && planoSelecionado.diasPermitidos.length < 7 && (
+                <div className="flex items-center gap-2 pt-2 border-t border-current border-opacity-20">
+                  <CalendarDays className="w-3.5 h-3.5 opacity-70 shrink-0" />
+                  <div className="flex gap-1 flex-wrap">
+                    {NOMES_DIAS.map((nome, idx) => {
+                      const permitido = planoSelecionado.diasPermitidos.includes(idx);
+                      return (
+                        <span key={idx}
+                          className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                            permitido ? 'bg-current bg-opacity-20 opacity-100' : 'opacity-30'
+                          }`}
+                        >
+                          {nome}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
-      {/* ── Gerar link ── */}
-      {!isEditMode && planosDisponiveis.length > 0 && (
-        <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200 cursor-pointer hover:bg-gray-100 transition">
-          <input type="checkbox" checked={gerarLinkAoCadastrar}
-            onChange={e => setGerarLinkAoCadastrar(e.target.checked)}
-            className="w-4 h-4 text-indigo-600 rounded" />
-          <div>
-            <p className="text-sm font-medium text-gray-800">Gerar link de pagamento ao cadastrar</p>
-            <p className="text-xs text-gray-500">O link será copiado automaticamente após o cadastro</p>
-          </div>
-        </label>
+          {!isEditMode && (
+            <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200 cursor-pointer hover:bg-gray-100 transition">
+              <input type="checkbox" checked={gerarLinkAoCadastrar}
+                onChange={e => setGerarLinkAoCadastrar(e.target.checked)}
+                className="w-4 h-4 text-indigo-600 rounded" />
+              <div>
+                <p className="text-sm font-medium text-gray-800">Gerar link de pagamento ao cadastrar</p>
+                <p className="text-xs text-gray-500">
+                  Precisa de uma modalidade e periodicidade selecionadas acima.
+                </p>
+              </div>
+            </label>
+          )}
+        </div>
       )}
 
       {/* ── Ações ── */}
