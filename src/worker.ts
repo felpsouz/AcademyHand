@@ -55,8 +55,8 @@ export class AcademyHandContainer extends Container {
 export default {
   async fetch(request: Request, env: any): Promise<Response> {
     // O nome da instância força um container novo (com imagem e secrets atuais).
-    // Para forçar outra troca no futuro, mude 'v2' para 'v3' e assim por diante.
-    const container = getContainer(env.ACADEMYHAND_CONTAINER, 'v2');
+    // Para forçar outra troca no futuro, mude 'v4' para 'v4' e assim por diante.
+    const container = getContainer(env.ACADEMYHAND_CONTAINER, 'v3');
     return container.fetch(request);
   },
 };
