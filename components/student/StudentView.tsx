@@ -12,7 +12,6 @@ import { doc, getDoc, collection, query, where, getDocs, orderBy, limit } from '
 import { useAuth } from '@/contexts/AuthContext';
 import { getStudentDisplayData } from '@/utils/manualPayment';
 import { PixQrCode } from '@/components/common/PixQrCode';
-import { AgendaAluno } from '@/components/agenda/AgendaAluno';
 
 interface StudentViewProps {
   userId: string;
@@ -276,7 +275,7 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
             {[
               { id: 'overview',   label: 'Início',    icon: Activity },
               { id: 'pagamento',  label: 'Pagamento', icon: CreditCard },
-              { id: 'attendance', label: 'Treinos',   icon: CheckCircle2 },
+              { id: 'attendance', label: 'Presenças', icon: CheckCircle2 },
               { id: 'videos',     label: 'Vídeos',    icon: Video },
             ].map(tab => (
               <button
@@ -524,11 +523,9 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
           </div>
         )}
 
-        {/* TREINOS — escolha de horários + histórico de presenças (somente leitura) */}
+        {/* PRESENÇAS — somente leitura */}
         {activeTab === 'attendance' && (
           <div className="space-y-4">
-            <AgendaAluno />
-
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm text-center">
                 <p className="text-3xl font-bold text-indigo-600">{attendance.length}</p>
