@@ -24,6 +24,7 @@ export function EditAcademyModal({ isOpen, onClose, academyId, onLoad, onSave }:
   const [nome, setNome] = useState('');
   const [usaGraduacao, setUsaGraduacao] = useState(true);
   const [usaFacial, setUsaFacial] = useState(false);
+  const [usaAgenda, setUsaAgenda] = useState(false);
   const [deviceIp, setDeviceIp] = useState('');
   const [devicePort, setDevicePort] = useState('9020');
   const [deviceUser, setDeviceUser] = useState('admin');
@@ -52,6 +53,7 @@ export function EditAcademyModal({ isOpen, onClose, academyId, onLoad, onSave }:
         setNome(data.nome ?? '');
         setUsaGraduacao(data.usaGraduacao !== false);
         setUsaFacial(data.usaFacial === true);
+        setUsaAgenda(data.usaAgenda === true);
         setDeviceIp(data.device?.ip ?? '');
         setDevicePort(data.device?.port ?? '9020');
         setDeviceUser(data.device?.user ?? 'admin');
@@ -135,6 +137,7 @@ export function EditAcademyModal({ isOpen, onClose, academyId, onLoad, onSave }:
         nome,
         usaGraduacao,
         usaFacial,
+        usaAgenda,
         device: usaFacial && deviceIp
           ? { ip: deviceIp, port: devicePort, user: deviceUser, pass: devicePass }
           : null,
@@ -177,6 +180,16 @@ export function EditAcademyModal({ isOpen, onClose, academyId, onLoad, onSave }:
               className="rounded border-gray-300 text-red-600 focus:ring-red-500"
             />
             Usa sistema de faixas/graduação
+          </label>
+
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={usaAgenda}
+              onChange={(e) => setUsaAgenda(e.target.checked)}
+              className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+            />
+            Usa agenda de horários individuais (personal)
           </label>
 
           <label className="flex items-center gap-2 text-sm text-gray-700">

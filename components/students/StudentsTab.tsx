@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useMemo } from 'react';
-import { Search, Plus, Download } from 'lucide-react';
+import { Search, Plus, Download, Users, CalendarDays } from 'lucide-react';
 import { Student } from '@/types';
 import { StudentForm } from './StudentForm';
 import { StudentList } from './StudentList';
@@ -9,6 +9,8 @@ import { Modal } from '@/components/common/Modal';
 import { useStudents } from '@/hooks/useStudents';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { AgendaAdmin } from '@/components/agenda/AgendaAdmin';
+import { chamarAgenda } from '@/lib/agenda';
 
 const BELTS = ['Branca', 'Azul', 'Roxa', 'Marrom', 'Preta'] as const;
 const ITEMS_PER_PAGE = 10;
@@ -31,8 +33,13 @@ function getEffectiveStatus(student: Student): string {
 
 export const StudentsTab: React.FC = () => {
   const { students, loading, addStudent, updateStudent, deleteStudent } = useStudents();
-  const { userData } = useAuth();
+  const { user, userData } = useAuth();
   const usaGraduacao = userData?.usaGraduacao !== false;
+  const usaAgenda = userData?.usaAgenda === true;
+
+  // visão: lista de alunos ou calendário de horários (agenda só existe se a academia usa)
+  const [view, setView] = useState<'lista' | 'agenda'>('lista');
+  const viewAtual = usaAgenda ? view : 'lista';
 
   // filtros
   const [searchTerm,   setSearchTerm]   = useState('');
@@ -90,6 +97,17 @@ export const StudentsTab: React.FC = () => {
   const handleDelete = async (id: string) => {
     if (confirm('Tem certeza que deseja excluir este aluno?')) {
       await deleteStudent(id);
+
+      // Libera os horários da agenda que esse aluno ocupava (só em academias com agenda).
+      // Se falhar, não atrapalha a exclusão — o personal libera manualmente no calendário.
+      if (usaAgenda && user) {
+        try {
+          const idToken = await user.getIdToken();
+          await chamarAgenda(idToken, { acao: 'liberarAluno', studentId: id });
+        } catch (err) {
+          console.error('Erro ao liberar os horários do aluno excluído:', err);
+        }
+      }
     }
   };
 
@@ -155,90 +173,120 @@ export const StudentsTab: React.FC = () => {
   return (
     <div className="space-y-6">
 
-      {/* Filtros e ações */}
-      <div className="bg-white p-4 rounded-lg shadow-sm">
-        <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
-
-          <div className="flex flex-col sm:flex-row gap-2 flex-1 w-full">
-            <div className="relative flex-1">
-              <Search className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Buscar alunos..."
-                value={searchTerm}
-                onChange={e => updateSearch(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
-              />
-            </div>
-
-            {usaGraduacao && (
-              <select
-                value={filterBelt}
-                onChange={e => updateBelt(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
-              >
-                <option value="all">Todas as Faixas</option>
-                {BELTS.map(b => <option key={b} value={b}>{b}</option>)}
-              </select>
-            )}
-
-            <select
-              value={filterStatus}
-              onChange={e => updateStatus(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
-            >
-              <option value="all">Todos Status</option>
-              <option value="active">Ativo</option>
-              <option value="inactive">Inativo</option>
-              <option value="suspended">Suspenso</option>
-            </select>
-          </div>
-
-          <div className="flex gap-2 w-full lg:w-auto">
-            <button
-              onClick={handleExport}
-              disabled={filteredStudents.length === 0}
-              className="flex-1 lg:flex-none px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Download className="w-4 h-4" />
-              Exportar
-            </button>
-            <button
-              onClick={() => { setEditingStudent(null); setShowModal(true); }}
-              className="flex-1 lg:flex-none px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              Novo Aluno
-            </button>
-          </div>
+      {/* Alternar entre lista e agenda (só para academias que usam agenda) */}
+      {usaAgenda && (
+        <div className="inline-flex rounded-lg overflow-hidden border border-gray-300 bg-white text-sm">
+          <button
+            onClick={() => setView('lista')}
+            className={`px-4 py-2 flex items-center gap-2 font-medium transition ${
+              viewAtual === 'lista' ? 'bg-red-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            Lista
+          </button>
+          <button
+            onClick={() => setView('agenda')}
+            className={`px-4 py-2 flex items-center gap-2 font-medium transition ${
+              viewAtual === 'agenda' ? 'bg-red-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            <CalendarDays className="w-4 h-4" />
+            Agenda
+          </button>
         </div>
-      </div>
+      )}
 
-      {/* Estatísticas */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { label: 'Total de Alunos',  value: stats.total,   color: 'text-gray-900'   },
-          { label: 'Alunos Ativos',    value: stats.active,  color: 'text-green-600'  },
-          { label: 'Em dia',           value: stats.paid,    color: 'text-indigo-600' },
-          { label: 'Inadimplentes',    value: stats.overdue, color: 'text-red-600'    },
-        ].map(({ label, value, color }) => (
-          <div key={label} className="bg-white p-4 rounded-lg shadow-sm">
-            <p className="text-sm text-gray-600">{label}</p>
-            <p className={`text-2xl font-bold ${color}`}>{value}</p>
+      {viewAtual === 'agenda' ? (
+        <AgendaAdmin students={students} />
+      ) : (
+        <>
+          {/* Filtros e ações */}
+          <div className="bg-white p-4 rounded-lg shadow-sm">
+            <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+
+              <div className="flex flex-col sm:flex-row gap-2 flex-1 w-full">
+                <div className="relative flex-1">
+                  <Search className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Buscar alunos..."
+                    value={searchTerm}
+                    onChange={e => updateSearch(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
+                  />
+                </div>
+
+                {usaGraduacao && (
+                  <select
+                    value={filterBelt}
+                    onChange={e => updateBelt(e.target.value)}
+                    className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
+                  >
+                    <option value="all">Todas as Faixas</option>
+                    {BELTS.map(b => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                )}
+
+                <select
+                  value={filterStatus}
+                  onChange={e => updateStatus(e.target.value)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent"
+                >
+                  <option value="all">Todos Status</option>
+                  <option value="active">Ativo</option>
+                  <option value="inactive">Inativo</option>
+                  <option value="suspended">Suspenso</option>
+                </select>
+              </div>
+
+              <div className="flex gap-2 w-full lg:w-auto">
+                <button
+                  onClick={handleExport}
+                  disabled={filteredStudents.length === 0}
+                  className="flex-1 lg:flex-none px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Download className="w-4 h-4" />
+                  Exportar
+                </button>
+                <button
+                  onClick={() => { setEditingStudent(null); setShowModal(true); }}
+                  className="flex-1 lg:flex-none px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  Novo Aluno
+                </button>
+              </div>
+            </div>
           </div>
-        ))}
-      </div>
 
-      {/* Delegamos tabela + paginação + pagamento manual ao StudentList */}
-      <StudentList
-        students={pagedStudents}
-        onEdit={handleEdit}
-        onDelete={handleDelete}
-        currentPage={safePage}
-        totalPages={totalPages}
-        onPageChange={handlePageChange}
-        usaGraduacao={usaGraduacao}
-      />
+          {/* Estatísticas */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { label: 'Total de Alunos',  value: stats.total,   color: 'text-gray-900'   },
+              { label: 'Alunos Ativos',    value: stats.active,  color: 'text-green-600'  },
+              { label: 'Em dia',           value: stats.paid,    color: 'text-indigo-600' },
+              { label: 'Inadimplentes',    value: stats.overdue, color: 'text-red-600'    },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="bg-white p-4 rounded-lg shadow-sm">
+                <p className="text-sm text-gray-600">{label}</p>
+                <p className={`text-2xl font-bold ${color}`}>{value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Delegamos tabela + paginação + pagamento manual ao StudentList */}
+          <StudentList
+            students={pagedStudents}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+            currentPage={safePage}
+            totalPages={totalPages}
+            onPageChange={handlePageChange}
+            usaGraduacao={usaGraduacao}
+          />
+        </>
+      )}
 
       {/* Modal de criação / edição */}
       <Modal

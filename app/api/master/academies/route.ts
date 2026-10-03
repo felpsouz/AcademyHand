@@ -22,6 +22,7 @@ export async function GET(request: Request) {
         id: doc.id,
         nome: data.nome,
         ativa: data.ativa !== false, // default true se o campo não existir
+        usaAgenda: data.usaAgenda === true, // default false: agenda de horários é opcional
         criadaEm: data.criadaEm?.toDate?.().toISOString() ?? null,
         stripeSecretKeyMascarada: mascararChave(data.stripeSecretKey),
       };
@@ -43,7 +44,7 @@ export async function POST(request: Request) {
     await verifyMasterRequest(request);
 
     const body = await request.json();
-    const { nome, usaGraduacao, usaFacial, device, stripeSecretKey, stripeWebhookSecret, academyId } = body;
+    const { nome, usaGraduacao, usaFacial, usaAgenda, device, stripeSecretKey, stripeWebhookSecret, academyId } = body;
 
     if (!nome || typeof nome !== 'string') {
       return NextResponse.json({ error: 'Campo "nome" é obrigatório' }, { status: 400 });
@@ -67,6 +68,7 @@ export async function POST(request: Request) {
       nome,
       usaGraduacao: usaGraduacao !== false, // default true se não vier explicitamente false
       usaFacial: usaFacial === true,        // default false: leitor facial é opcional
+      usaAgenda: usaAgenda === true,        // default false: agenda de horários é opcional
       device: device ?? null,
       stripeSecretKey: stripeSecretKey || null,
       stripeWebhookSecret: stripeWebhookSecret || null,
@@ -74,7 +76,7 @@ export async function POST(request: Request) {
       criadaEm: FieldValue.serverTimestamp(),
     });
 
-    return NextResponse.json({ id, nome, ativa: true }, { status: 201 });
+    return NextResponse.json({ id, nome, ativa: true, usaAgenda: usaAgenda === true }, { status: 201 });
   } catch (error) {
     if (error instanceof MasterAuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });

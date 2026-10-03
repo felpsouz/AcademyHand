@@ -20,6 +20,7 @@ interface UserData {
   academyName?: string; // nome da academia, copiado na criação (client não lê "academies" direto)
   usaGraduacao?: boolean; // controla se a UI mostra campos de faixa/graduação
   usaFacial?: boolean; // controla se a UI mostra foto/sincronização com leitor facial
+  usaAgenda?: boolean; // controla se a UI mostra a agenda de horários (vem da API, não do doc do usuário)
 }
 
 interface AuthContextType {
@@ -57,6 +58,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             return;
           }
 
+          // Recursos opcionais da academia, informados pelo servidor.
+          // Se a checagem falhar, ficam desligados (o login não é derrubado).
+          let usaAgenda = false;
+
           // Verifica se a academia do usuário ainda está ativa
           // (master é sempre liberado, a própria rota já trata isso)
           if (data) {
@@ -87,6 +92,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               if (status.ativa !== true) {
                 console.warn('Resposta inesperada ao verificar status da academia:', status);
               }
+
+              usaAgenda = status.usaAgenda === true;
             } catch (statusError) {
               // Se a checagem falhar por erro de rede/servidor, não bloqueamos o login
               // (evita travar todo mundo fora por uma falha temporária da rota).
@@ -94,7 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
           }
 
-          setUserData(data);
+          setUserData(data ? { ...data, usaAgenda } : data);
         } catch (error) {
           console.error('Error fetching user data:', error);
           setUserData(null);

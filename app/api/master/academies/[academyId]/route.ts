@@ -25,6 +25,7 @@ export async function GET(
       ativa: data.ativa !== false,
       usaGraduacao: data.usaGraduacao !== false,
       usaFacial: data.usaFacial === true,
+      usaAgenda: data.usaAgenda === true,
       device: data.device ?? null,
       planos: data.planos ?? [],
       pix: data.pix ?? null,
@@ -66,6 +67,7 @@ export async function PATCH(
     if (typeof body.nome === 'string' && body.nome.trim()) updateData.nome = body.nome.trim();
     if (typeof body.usaGraduacao === 'boolean') updateData.usaGraduacao = body.usaGraduacao;
     if (typeof body.usaFacial === 'boolean') updateData.usaFacial = body.usaFacial;
+    if (typeof body.usaAgenda === 'boolean') updateData.usaAgenda = body.usaAgenda;
     if (body.device !== undefined) updateData.device = body.device;
     if (Array.isArray(body.planos)) updateData.planos = body.planos;
     if (body.pix !== undefined) updateData.pix = body.pix;
