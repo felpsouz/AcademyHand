@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 
 // POST /api/auth/check-academy-status — verifica se a academia do usuário logado está ativa
-// e quais recursos opcionais ela tem ligados (ex: agenda de horários).
+// e devolve as configurações atuais dela (nome, graduação, facial, agenda).
 // Chamado pelo client logo após o login (ou no onAuthStateChanged).
 export async function POST(request: Request) {
   try {
@@ -59,13 +59,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ ativa: false, motivo: 'Academia não encontrada' });
     }
 
-    const academia = academyDoc.data();
-    const ativa = academia?.ativa !== false;
+    const academia = academyDoc.data()!;
+    const ativa = academia.ativa !== false;
 
     return NextResponse.json({
       ativa,
       motivo: ativa ? null : 'Academia suspensa',
-      usaAgenda: ativa && academia?.usaAgenda === true,
+      nome: academia.nome ?? null,
+      usaGraduacao: academia.usaGraduacao !== false,
+      usaFacial: academia.usaFacial === true,
+      usaAgenda: ativa && academia.usaAgenda === true,
     });
   } catch (error: any) {
     console.error('[check-academy-status] Erro interno:', {

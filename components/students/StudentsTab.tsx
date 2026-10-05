@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useMemo } from 'react';
-import { Search, Plus, Download, Users, CalendarDays } from 'lucide-react';
+import { Search, Plus, Download, Users, CalendarDays, Dumbbell } from 'lucide-react';
 import { Student } from '@/types';
 import { StudentForm } from './StudentForm';
 import { StudentList } from './StudentList';
@@ -10,7 +10,9 @@ import { useStudents } from '@/hooks/useStudents';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { AgendaAdmin } from '@/components/agenda/AgendaAdmin';
+import { TreinosAdmin } from '@/components/treinos/TreinosAdmin';
 import { chamarAgenda } from '@/lib/agenda';
+import { chamarTreinos } from '@/lib/treinos';
 
 const BELTS = ['Branca', 'Azul', 'Roxa', 'Marrom', 'Preta'] as const;
 const ITEMS_PER_PAGE = 10;
@@ -35,10 +37,11 @@ export const StudentsTab: React.FC = () => {
   const { students, loading, addStudent, updateStudent, deleteStudent } = useStudents();
   const { user, userData } = useAuth();
   const usaGraduacao = userData?.usaGraduacao !== false;
+  // "Modo personal": liga a agenda de horários e os treinos prescritos
   const usaAgenda = userData?.usaAgenda === true;
 
-  // visão: lista de alunos ou calendário de horários (agenda só existe se a academia usa)
-  const [view, setView] = useState<'lista' | 'agenda'>('lista');
+  // visão: lista de alunos, calendário de horários ou treinos (só no modo personal)
+  const [view, setView] = useState<'lista' | 'agenda' | 'treinos'>('lista');
   const viewAtual = usaAgenda ? view : 'lista';
 
   // filtros
@@ -98,14 +101,17 @@ export const StudentsTab: React.FC = () => {
     if (confirm('Tem certeza que deseja excluir este aluno?')) {
       await deleteStudent(id);
 
-      // Libera os horários da agenda que esse aluno ocupava (só em academias com agenda).
-      // Se falhar, não atrapalha a exclusão — o personal libera manualmente no calendário.
+      // Modo personal: libera os horários que o aluno ocupava e remove o treino dele.
+      // Se falhar, não atrapalha a exclusão — o personal resolve manualmente.
       if (usaAgenda && user) {
         try {
           const idToken = await user.getIdToken();
-          await chamarAgenda(idToken, { acao: 'liberarAluno', studentId: id });
+          await Promise.allSettled([
+            chamarAgenda(idToken, { acao: 'liberarAluno', studentId: id }),
+            chamarTreinos(idToken, { metodo: 'DELETE', studentId: id }),
+          ]);
         } catch (err) {
-          console.error('Erro ao liberar os horários do aluno excluído:', err);
+          console.error('Erro ao limpar agenda/treino do aluno excluído:', err);
         }
       }
     }
@@ -170,35 +176,37 @@ export const StudentsTab: React.FC = () => {
 
   // ── render ───────────────────────────────────────────────────────────────────
 
+  const abas = [
+    { id: 'lista',   label: 'Lista',   icon: Users },
+    { id: 'agenda',  label: 'Agenda',  icon: CalendarDays },
+    { id: 'treinos', label: 'Treinos', icon: Dumbbell },
+  ] as const;
+
   return (
     <div className="space-y-6">
 
-      {/* Alternar entre lista e agenda (só para academias que usam agenda) */}
+      {/* Alternar entre lista, agenda e treinos (só para academias no modo personal) */}
       {usaAgenda && (
         <div className="inline-flex rounded-lg overflow-hidden border border-gray-300 bg-white text-sm">
-          <button
-            onClick={() => setView('lista')}
-            className={`px-4 py-2 flex items-center gap-2 font-medium transition ${
-              viewAtual === 'lista' ? 'bg-red-600 text-white' : 'text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            Lista
-          </button>
-          <button
-            onClick={() => setView('agenda')}
-            className={`px-4 py-2 flex items-center gap-2 font-medium transition ${
-              viewAtual === 'agenda' ? 'bg-red-600 text-white' : 'text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            <CalendarDays className="w-4 h-4" />
-            Agenda
-          </button>
+          {abas.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setView(id)}
+              className={`px-4 py-2 flex items-center gap-2 font-medium transition ${
+                viewAtual === id ? 'bg-red-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {label}
+            </button>
+          ))}
         </div>
       )}
 
       {viewAtual === 'agenda' ? (
         <AgendaAdmin students={students} />
+      ) : viewAtual === 'treinos' ? (
+        <TreinosAdmin students={students} />
       ) : (
         <>
           {/* Filtros e ações */}

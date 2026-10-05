@@ -70,6 +70,7 @@ export function useMasterPanel() {
     nome: string;
     usaGraduacao: boolean;
     usaFacial: boolean;
+    usaAgenda?: boolean;
     device?: { ip: string; port: string; user: string; pass: string };
     stripeSecretKey?: string;
     stripeWebhookSecret?: string;
@@ -98,11 +99,12 @@ export function useMasterPanel() {
     return chamarApi(`/api/master/academies/${academyId}`);
   }, [chamarApi]);
 
-  // Atualiza qualquer campo de uma academia (nome, graduação, facial, Stripe, etc.)
+  // Atualiza qualquer campo de uma academia (nome, graduação, facial, agenda, Stripe, etc.)
   const atualizarAcademia = useCallback(async (academyId: string, payload: {
     nome?: string;
     usaGraduacao?: boolean;
     usaFacial?: boolean;
+    usaAgenda?: boolean;
     device?: { ip: string; port: string; user: string; pass: string } | null;
     stripeSecretKey?: string;
     stripeWebhookSecret?: string;

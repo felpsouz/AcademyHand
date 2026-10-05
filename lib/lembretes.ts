@@ -1,10 +1,23 @@
 import { adminDb } from './firebase-admin';
 import { enviarWhatsApp } from './whatsapp';
 
+// O servidor roda em UTC. Sem converter, depois das 21h em Brasília o "hoje" já é
+// "amanhã" e o lembrete sai um dia errado. Todas as contas de data usam este fuso.
+const FUSO = 'America/Sao_Paulo';
+
+function noFuso(data: Date): Date {
+  return new Date(data.toLocaleString('en-US', { timeZone: FUSO }));
+}
+
+// "Hoje" em Brasília, no formato YYYY-MM-DD (usado para não enviar o mesmo lembrete duas vezes)
+function hojeStr(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: FUSO });
+}
+
 function diasAteVencimento(dataStr: string): number {
-  const hoje = new Date();
+  const hoje = noFuso(new Date());
   hoje.setHours(0, 0, 0, 0);
-  const alvo = new Date(dataStr);
+  const alvo = noFuso(new Date(dataStr));
   alvo.setHours(0, 0, 0, 0);
   return Math.round((alvo.getTime() - hoje.getTime()) / 86400000);
 }
@@ -22,7 +35,7 @@ export interface ResultadoLembretes {
  */
 export async function processarLembretesAcademia(academyId: string): Promise<ResultadoLembretes> {
   const db = adminDb();
-  const hojeStr = new Date().toISOString().split('T')[0];
+  const hoje = hojeStr();
 
   const resultado: ResultadoLembretes = { vencendoEnviados: 0, vencidosEnviados: 0, erros: 0 };
 
@@ -47,26 +60,26 @@ export async function processarLembretesAcademia(academyId: string): Promise<Res
     const statusAtual = student.stripePaymentStatus ?? 'pending';
 
     try {
-      if (dias === 3 && student.lembreteVencendoEnviadoEm !== hojeStr) {
+      if (dias === 3 && student.lembreteVencendoEnviadoEm !== hoje) {
         const ok = await enviarWhatsApp(
           student.phone,
           `Olá, ${student.name}! 👋\n\nSua mensalidade na *${academia.nome}* vence em 3 dias.\n\nPara evitar interrupção do seu acesso, regularize o pagamento assim que possível.`
         );
         if (ok) {
-          await studentDoc.ref.update({ lembreteVencendoEnviadoEm: hojeStr });
+          await studentDoc.ref.update({ lembreteVencendoEnviadoEm: hoje });
           resultado.vencendoEnviados++;
         } else {
           resultado.erros++;
         }
       }
 
-      if (dias === 0 && statusAtual !== 'active' && student.lembreteVencidoEnviadoEm !== hojeStr) {
+      if (dias === 0 && statusAtual !== 'active' && student.lembreteVencidoEnviadoEm !== hoje) {
         const ok = await enviarWhatsApp(
           student.phone,
           `Olá, ${student.name}! ⚠️\n\nSua mensalidade na *${academia.nome}* venceu hoje.\n\nRegularize o quanto antes para manter seu acesso ativo.`
         );
         if (ok) {
-          await studentDoc.ref.update({ lembreteVencidoEnviadoEm: hojeStr });
+          await studentDoc.ref.update({ lembreteVencidoEnviadoEm: hoje });
           resultado.vencidosEnviados++;
         } else {
           resultado.erros++;

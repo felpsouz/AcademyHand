@@ -11,6 +11,7 @@ interface CreateAcademyModalProps {
     nome: string;
     usaGraduacao: boolean;
     usaFacial: boolean;
+    usaAgenda: boolean;
     device?: { ip: string; port: string; user: string; pass: string };
     stripeSecretKey?: string;
     stripeWebhookSecret?: string;
@@ -21,6 +22,7 @@ export function CreateAcademyModal({ isOpen, onClose, onCreate }: CreateAcademyM
   const [nome, setNome] = useState('');
   const [usaGraduacao, setUsaGraduacao] = useState(true);
   const [usaFacial, setUsaFacial] = useState(false);
+  const [usaAgenda, setUsaAgenda] = useState(false);
   const [deviceIp, setDeviceIp] = useState('');
   const [devicePort, setDevicePort] = useState('9020');
   const [deviceUser, setDeviceUser] = useState('admin');
@@ -39,6 +41,7 @@ export function CreateAcademyModal({ isOpen, onClose, onCreate }: CreateAcademyM
         nome,
         usaGraduacao,
         usaFacial,
+        usaAgenda,
         device: usaFacial && deviceIp
           ? { ip: deviceIp, port: devicePort, user: deviceUser, pass: devicePass }
           : undefined,
@@ -48,6 +51,7 @@ export function CreateAcademyModal({ isOpen, onClose, onCreate }: CreateAcademyM
       setNome('');
       setUsaGraduacao(true);
       setUsaFacial(false);
+      setUsaAgenda(false);
       setDeviceIp('');
       setDevicePass('');
       setStripeSecretKey('');
@@ -83,6 +87,21 @@ export function CreateAcademyModal({ isOpen, onClose, onCreate }: CreateAcademyM
             className="rounded border-gray-300 text-red-600 focus:ring-red-500"
           />
           Essa academia usa sistema de faixas/graduação (ex: Jiu-Jitsu)
+        </label>
+
+        <label className="flex items-start gap-2 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={usaAgenda}
+            onChange={(e) => setUsaAgenda(e.target.checked)}
+            className="mt-0.5 rounded border-gray-300 text-red-600 focus:ring-red-500"
+          />
+          <span>
+            Modo personal (agenda + treinos)
+            <span className="block text-xs text-gray-400">
+              Alunos individuais: o aluno escolhe o horário na grade do personal e vê o treino prescrito.
+            </span>
+          </span>
         </label>
 
         <label className="flex items-center gap-2 text-sm text-gray-700">

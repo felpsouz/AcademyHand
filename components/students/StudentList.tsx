@@ -24,6 +24,50 @@ const DURATIONS = [
   { label: '1 ano',   months: 12 },
 ];
 
+// ─── Helpers compartilhados entre a tabela (desktop) e os cards (mobile) ──────
+
+const STATUS_COLOR: Record<string, string> = {
+  active:    'bg-green-100 text-green-800',
+  paid:      'bg-green-100 text-green-800',
+  overdue:   'bg-red-100 text-red-800',
+  pending:   'bg-yellow-100 text-yellow-800',
+  cancelled: 'bg-gray-100 text-gray-800',
+};
+
+const STATUS_TEXT: Record<string, string> = {
+  active:    'Em dia',
+  paid:      'Pago',
+  overdue:   'Atrasado',
+  pending:   'Pendente',
+  cancelled: 'Cancelado',
+};
+
+function resolverPagamento(student: Student) {
+  const rawStatus    = student.stripePaymentStatus ?? student.paymentStatus ?? 'pending';
+  const manualUntil  = (student as any).manualPaymentUntil;
+  const manualActive =
+    !!(student as any).manualPayment && !!manualUntil &&
+    new Date(manualUntil).getTime() > Date.now();
+
+  const effectiveStatus =
+    manualActive || rawStatus === 'active' ? 'active' : rawStatus;
+
+  return { effectiveStatus, manualActive, manualUntil };
+}
+
+function classeFaixa(belt?: string): string {
+  return belt === 'Branca' ? 'bg-gray-100 text-gray-800' :
+         belt === 'Azul'   ? 'bg-blue-100 text-blue-800' :
+         belt === 'Roxa'   ? 'bg-purple-100 text-purple-800' :
+         belt === 'Marrom' ? 'bg-amber-100 text-amber-800' :
+                             'bg-black text-white';
+}
+
+const BTN_BASE    = 'inline-flex items-center justify-center gap-1.5 px-3 text-xs font-medium border rounded-lg transition-colors';
+const BTN_PAGO    = 'text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100';
+const BTN_EDITAR  = 'text-blue-700 bg-blue-50 border-blue-200 hover:bg-blue-100';
+const BTN_EXCLUIR = 'text-red-700 bg-red-50 border-red-200 hover:bg-red-100';
+
 // ─── Modal de confirmação de pagamento manual ─────────────────────────────────
 
 const PAYMENT_METHODS = [
@@ -64,8 +108,8 @@ const ManualPaymentModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 sm:p-6 max-h-[90dvh] overflow-y-auto">
         <h3 className="text-base font-semibold text-gray-900 mb-1">
           Confirmar pagamento manual
         </h3>
@@ -99,6 +143,7 @@ const ManualPaymentModal: React.FC<{
           </label>
           <input
             type="text"
+            inputMode="decimal"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -148,7 +193,7 @@ const ManualPaymentModal: React.FC<{
   );
 };
 
-// ─── Linha da tabela ──────────────────────────────────────────────────────────
+// ─── Linha da tabela (desktop) ────────────────────────────────────────────────
 
 const StudentRow: React.FC<{
   student: Student;
@@ -157,31 +202,7 @@ const StudentRow: React.FC<{
   onConfirmPayment: (student: Student) => void;
   usaGraduacao: boolean;
 }> = ({ student, onEdit, onDelete, onConfirmPayment, usaGraduacao }) => {
-
-  const rawStatus   = student.stripePaymentStatus ?? student.paymentStatus ?? 'pending';
-  const manualUntil = (student as any).manualPaymentUntil;
-  const manualActive =
-    !!(student as any).manualPayment && !!manualUntil &&
-    new Date(manualUntil).getTime() > Date.now();
-
-  const effectiveStatus =
-    manualActive || rawStatus === 'active' ? 'active' : rawStatus;
-
-  const statusColor: Record<string, string> = {
-    active:    'bg-green-100 text-green-800',
-    paid:      'bg-green-100 text-green-800',
-    overdue:   'bg-red-100 text-red-800',
-    pending:   'bg-yellow-100 text-yellow-800',
-    cancelled: 'bg-gray-100 text-gray-800',
-  };
-
-  const statusText: Record<string, string> = {
-    active:    'Em dia',
-    paid:      'Pago',
-    overdue:   'Atrasado',
-    pending:   'Pendente',
-    cancelled: 'Cancelado',
-  };
+  const { effectiveStatus, manualActive, manualUntil } = resolverPagamento(student);
 
   return (
     <tr className="hover:bg-gray-50">
@@ -203,13 +224,7 @@ const StudentRow: React.FC<{
       {/* Faixa — só aparece se a academia usa sistema de graduação */}
       {usaGraduacao && (
         <td className="px-4 py-4 whitespace-nowrap">
-          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-            student.belt === 'Branca' ? 'bg-gray-100 text-gray-800' :
-            student.belt === 'Azul'   ? 'bg-blue-100 text-blue-800' :
-            student.belt === 'Roxa'   ? 'bg-purple-100 text-purple-800' :
-            student.belt === 'Marrom' ? 'bg-amber-100 text-amber-800' :
-                                        'bg-black text-white'
-          }`}>
+          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${classeFaixa(student.belt)}`}>
             {student.belt || 'Não definida'}
           </span>
         </td>
@@ -220,9 +235,9 @@ const StudentRow: React.FC<{
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-1.5">
             <span className={`px-2 py-1 text-xs font-semibold rounded-full w-fit ${
-              statusColor[effectiveStatus] ?? statusColor.pending
+              STATUS_COLOR[effectiveStatus] ?? STATUS_COLOR.pending
             }`}>
-              {statusText[effectiveStatus] ?? 'Pendente'}
+              {STATUS_TEXT[effectiveStatus] ?? 'Pendente'}
             </span>
             {manualActive && (
               <span className="text-xs text-emerald-600 font-medium">manual</span>
@@ -257,7 +272,7 @@ const StudentRow: React.FC<{
           <button
             onClick={() => onConfirmPayment(student)}
             title="Confirmar pagamento em espécie ou Pix"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
+            className={`${BTN_BASE} ${BTN_PAGO} py-1.5`}
           >
             <CheckCircle2 className="w-3.5 h-3.5" />
             Pago
@@ -265,7 +280,7 @@ const StudentRow: React.FC<{
           <button
             onClick={() => onEdit(student)}
             title="Editar aluno"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+            className={`${BTN_BASE} ${BTN_EDITAR} py-1.5`}
           >
             <Edit2 className="w-3.5 h-3.5" />
             Editar
@@ -273,7 +288,7 @@ const StudentRow: React.FC<{
           <button
             onClick={() => onDelete(student.id)}
             title="Excluir aluno"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
+            className={`${BTN_BASE} ${BTN_EXCLUIR} py-1.5`}
           >
             <Trash2 className="w-3.5 h-3.5" />
             Excluir
@@ -284,6 +299,82 @@ const StudentRow: React.FC<{
   );
 };
 
+// ─── Card (mobile) ────────────────────────────────────────────────────────────
+
+const StudentCard: React.FC<{
+  student: Student;
+  onEdit: (student: Student) => void;
+  onDelete: (id: string) => void;
+  onConfirmPayment: (student: Student) => void;
+  usaGraduacao: boolean;
+}> = ({ student, onEdit, onDelete, onConfirmPayment, usaGraduacao }) => {
+  const { effectiveStatus, manualActive, manualUntil } = resolverPagamento(student);
+
+  return (
+    <div className="p-4 space-y-3">
+      {/* Aluno + faixa */}
+      <div className="flex items-start gap-3">
+        <div className="flex-shrink-0 h-10 w-10 bg-red-100 rounded-full flex items-center justify-center">
+          <span className="text-red-600 font-semibold text-sm">
+            {student.name.charAt(0).toUpperCase()}
+          </span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-gray-900 truncate">{student.name}</p>
+          <p className="text-xs text-gray-500 truncate">{student.email}</p>
+        </div>
+        {usaGraduacao && (
+          <span className={`px-2 py-1 text-xs font-semibold rounded-full flex-shrink-0 ${classeFaixa(student.belt)}`}>
+            {student.belt || 'Não definida'}
+          </span>
+        )}
+      </div>
+
+      {/* Pagamento, mensalidade e presenças */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-gray-500">
+        <span className="flex items-center gap-1.5">
+          <span className={`px-2 py-1 font-semibold rounded-full ${
+            STATUS_COLOR[effectiveStatus] ?? STATUS_COLOR.pending
+          }`}>
+            {STATUS_TEXT[effectiveStatus] ?? 'Pendente'}
+          </span>
+          {manualActive && <span className="text-emerald-600 font-medium">manual</span>}
+        </span>
+        <span>R$ {student.monthlyFee?.toFixed(2) || '0.00'}</span>
+        <span>{student.totalAttendances || 0} dias</span>
+      </div>
+
+      {(student.plano || (manualActive && manualUntil)) && (
+        <p className="text-xs text-gray-400">
+          {student.plano && (
+            <span className="capitalize">{student.plano} · {student.periodicidade}</span>
+          )}
+          {student.plano && manualActive && manualUntil && ' · '}
+          {manualActive && manualUntil && (
+            <span>até {new Date(manualUntil).toLocaleDateString('pt-BR')}</span>
+          )}
+        </p>
+      )}
+
+      {/* Ações */}
+      <div className="grid grid-cols-3 gap-2">
+        <button onClick={() => onConfirmPayment(student)} className={`${BTN_BASE} ${BTN_PAGO} py-2.5`}>
+          <CheckCircle2 className="w-4 h-4" />
+          Pago
+        </button>
+        <button onClick={() => onEdit(student)} className={`${BTN_BASE} ${BTN_EDITAR} py-2.5`}>
+          <Edit2 className="w-4 h-4" />
+          Editar
+        </button>
+        <button onClick={() => onDelete(student.id)} className={`${BTN_BASE} ${BTN_EXCLUIR} py-2.5`}>
+          <Trash2 className="w-4 h-4" />
+          Excluir
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // ─── Paginação ────────────────────────────────────────────────────────────────
 
 const Pagination: React.FC<{
@@ -291,11 +382,11 @@ const Pagination: React.FC<{
   totalPages: number;
   onPageChange: (page: number) => void;
 }> = ({ currentPage, totalPages, onPageChange }) => (
-  <div className="flex justify-center items-center gap-2">
+  <div className="flex flex-wrap justify-center items-center gap-2">
     <button
       onClick={() => onPageChange(currentPage - 1)}
       disabled={currentPage === 1}
-      className="px-3 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+      className="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
     >
       Anterior
     </button>
@@ -305,7 +396,7 @@ const Pagination: React.FC<{
     <button
       onClick={() => onPageChange(currentPage + 1)}
       disabled={currentPage === totalPages}
-      className="px-3 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+      className="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
     >
       Próxima
     </button>
@@ -383,7 +474,7 @@ export const StudentList: React.FC<StudentListProps> = ({
     <div className="space-y-4">
       {/* Toast */}
       {toast && (
-        <div className="fixed bottom-4 right-4 z-50 bg-emerald-600 text-white px-4 py-3 rounded-xl shadow-lg text-sm font-medium">
+        <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 z-50 bg-emerald-600 text-white px-4 py-3 rounded-xl shadow-lg text-sm font-medium text-center sm:text-left">
           {toast}
         </div>
       )}
@@ -397,7 +488,22 @@ export const StudentList: React.FC<StudentListProps> = ({
         />
       )}
 
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+      {/* Mobile: cards */}
+      <div className="md:hidden bg-white rounded-lg shadow-sm overflow-hidden divide-y divide-gray-100">
+        {students.map(student => (
+          <StudentCard
+            key={student.id}
+            student={student}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onConfirmPayment={setPaymentStudent}
+            usaGraduacao={usaGraduacao}
+          />
+        ))}
+      </div>
+
+      {/* Desktop: tabela */}
+      <div className="hidden md:block bg-white rounded-lg shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">

@@ -13,6 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { getStudentDisplayData } from '@/utils/manualPayment';
 import { PixQrCode } from '@/components/common/PixQrCode';
 import { AgendaAluno } from '@/components/agenda/AgendaAluno';
+import { TreinoAluno } from '@/components/treinos/TreinoAluno';
 
 interface StudentViewProps {
   userId: string;
@@ -25,7 +26,7 @@ interface StudentData {
   belt?: string;
   status: string;
   monthlyFee: number;
-  dueDate: number;
+  dueDate?: number;
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
   stripePaymentStatus?: 'active' | 'overdue' | 'cancelled' | 'pending';
@@ -33,6 +34,15 @@ interface StudentData {
   periodicidade?: string;
   nextPaymentAt?: string;
   lastPaymentAt?: string;
+}
+
+// Campos do cadastro novo, lidos direto do documento do aluno
+interface PagamentoExtra {
+  vezesPorSemana: number | null;
+  nextPaymentDue: string | null;
+  manualPayment: boolean;
+  manualPaymentUntil: string | null;
+  stripeSubscriptionId: string | null;
 }
 
 interface AttendanceRecord {
@@ -50,6 +60,7 @@ interface VideoData {
   description?: string;
 }
 
+// Planos antigos (jiu-jitsu). Só usado quando o aluno não tem "vezes por semana".
 const PLAN_LABELS: Record<string, string> = {
   gi:       'Gi (com kimono)',
   nogi:     'No-Gi (sem kimono)',
@@ -64,11 +75,45 @@ const BELT_COLORS: Record<string, string> = {
   Preta:  'bg-gray-900 text-white',
 };
 
+// ─── helpers de pagamento ─────────────────────────────────────────────────────
+
+function formatarMoeda(valor: number): string {
+  return `R$ ${(valor || 0).toFixed(2).replace('.', ',')}`;
+}
+
+function formatarData(iso: string): string {
+  return new Date(iso).toLocaleDateString('pt-BR');
+}
+
+// Diferença em dias entre hoje e a data (negativo = já passou)
+function diasParaData(iso: string): number {
+  const alvo = new Date(iso);
+  const hoje = new Date();
+  alvo.setHours(0, 0, 0, 0);
+  hoje.setHours(0, 0, 0, 0);
+  return Math.round((alvo.getTime() - hoje.getTime()) / 86400000);
+}
+
+function textoVencimento(dias: number): string {
+  if (dias === 0) return 'vence hoje';
+  if (dias === 1) return 'vence amanhã';
+  if (dias > 1) return `vence em ${dias} dias`;
+  if (dias === -1) return 'venceu ontem';
+  return `venceu há ${Math.abs(dias)} dias`;
+}
+
+function rotuloPlano(vezes: number | null, plano?: string): string | null {
+  if (vezes) return vezes >= 7 ? 'Livre (todos os dias)' : `${vezes}x por semana`;
+  if (plano) return PLAN_LABELS[plano] ?? plano;
+  return null;
+}
+
 export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) => {
   const { user, userData } = useAuth();
   const academyId = userData?.academyId;
 
   const [studentData, setStudentData] = useState<StudentData | null>(null);
+  const [extra, setExtra] = useState<PagamentoExtra | null>(null);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [videos, setVideos] = useState<VideoData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,7 +155,15 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
     try {
       const studentDoc = await getDoc(doc(db, 'students', userId));
       if (studentDoc.exists()) {
-        setStudentData(getStudentDisplayData(studentDoc.data() as StudentData));
+        const dados = studentDoc.data() as any;
+        setStudentData(getStudentDisplayData(dados as StudentData));
+        setExtra({
+          vezesPorSemana: Number(dados.vezesPorSemana) > 0 ? Number(dados.vezesPorSemana) : null,
+          nextPaymentDue: dados.nextPaymentDue ?? null,
+          manualPayment: dados.manualPayment === true,
+          manualPaymentUntil: dados.manualPaymentUntil ?? null,
+          stripeSubscriptionId: dados.stripeSubscriptionId ?? null,
+        });
       }
     } catch (err) { console.error(err); }
   };
@@ -232,15 +285,49 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
     );
   }
 
-  const stripeStatus = studentData.stripePaymentStatus;
+  // ── situação de pagamento ───────────────────────────────────────────────────
+
+  const stripeStatus = studentData.stripePaymentStatus ?? 'pending';
   const statusInfo = {
     active:    { label: 'Em dia',    color: 'text-emerald-700', bg: 'bg-emerald-50',  border: 'border-emerald-200' },
     overdue:   { label: 'Em atraso', color: 'text-red-700',     bg: 'bg-red-50',      border: 'border-red-200' },
     cancelled: { label: 'Cancelado', color: 'text-gray-600',    bg: 'bg-gray-100',    border: 'border-gray-200' },
     pending:   { label: 'Pendente',  color: 'text-amber-700',   bg: 'bg-amber-50',    border: 'border-amber-200' },
-  }[stripeStatus ?? 'pending'];
+  }[stripeStatus];
 
-  const hasActiveSubscription = stripeStatus === 'active' || stripeStatus === 'overdue';
+  const emDia = stripeStatus === 'active';
+  const responsavel = userData?.usaAgenda ? 'o personal' : 'a academia';
+
+  // Pagamento confirmado manualmente (dinheiro / Pix) e ainda dentro da validade
+  const manualAtivo =
+    !!extra?.manualPayment &&
+    !!extra?.manualPaymentUntil &&
+    new Date(extra.manualPaymentUntil).getTime() > Date.now();
+
+  // Assinatura de verdade no cartão (Stripe)
+  const temStripe =
+    !manualAtivo &&
+    (stripeStatus === 'active' || stripeStatus === 'overdue') &&
+    !!(studentData.stripeCustomerId || extra?.stripeSubscriptionId);
+
+  const podeAssinarNoCartao =
+    !temStripe && !manualAtivo && !emDia && !!studentData.plano && !!studentData.periodicidade;
+
+  // Data que importa para o aluno: até quando está pago, ou quando vence
+  const vencimentoISO: string | null = manualAtivo
+    ? (extra?.manualPaymentUntil ?? null)
+    : (studentData.nextPaymentAt ?? extra?.nextPaymentDue ?? null);
+  const diasVenc = vencimentoISO ? diasParaData(vencimentoISO) : null;
+  const vencidoSemPagar = diasVenc !== null && diasVenc < 0 && !emDia;
+
+  const planoRotulo = rotuloPlano(extra?.vezesPorSemana ?? null, studentData.plano);
+  const formaPagamento = manualAtivo
+    ? 'Confirmado manualmente'
+    : temStripe
+      ? 'Assinatura no cartão'
+      : null;
+
+  const mostrarPendencia = !emDia && stripeStatus !== 'cancelled';
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -327,30 +414,44 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
                   <CreditCard className="w-4 h-4 text-indigo-500" />
                 </div>
                 <p className={`text-xl font-bold ${statusInfo.color}`}>{statusInfo.label}</p>
-                {studentData.nextPaymentAt && (
+                {vencimentoISO && (
                   <p className="text-xs text-gray-400 mt-1">
-                    Próx: {new Date(studentData.nextPaymentAt).toLocaleDateString('pt-BR')}
+                    {manualAtivo ? 'Pago até' : 'Vencimento'}: {formatarData(vencimentoISO)}
                   </p>
                 )}
               </div>
             </div>
 
-            {/* Alerta de pagamento pendente */}
-            {!hasActiveSubscription && studentData.plano && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            {/* Alerta de pendência ou atraso */}
+            {mostrarPendencia && (
+              <div
+                className={`rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border ${
+                  stripeStatus === 'overdue' || vencidoSemPagar
+                    ? 'bg-red-50 border-red-200'
+                    : 'bg-amber-50 border-amber-200'
+                }`}
+              >
                 <div>
-                  <p className="text-sm font-semibold text-amber-800">Assinatura pendente</p>
-                  <p className="text-xs text-amber-600 mt-0.5">
-                    Ative seu plano para ter acesso completo.
+                  <p className={`text-sm font-semibold ${
+                    stripeStatus === 'overdue' || vencidoSemPagar ? 'text-red-800' : 'text-amber-800'
+                  }`}>
+                    {stripeStatus === 'overdue' || vencidoSemPagar ? 'Pagamento em atraso' : 'Pagamento pendente'}
+                  </p>
+                  <p className={`text-xs mt-0.5 ${
+                    stripeStatus === 'overdue' || vencidoSemPagar ? 'text-red-600' : 'text-amber-600'
+                  }`}>
+                    {formatarMoeda(studentData.monthlyFee)}
+                    {vencimentoISO && diasVenc !== null
+                      ? ` · ${textoVencimento(diasVenc)} (${formatarData(vencimentoISO)})`
+                      : ''}
                   </p>
                 </div>
                 <button
-                  onClick={assinarAgora}
-                  disabled={assinando}
-                  className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700 transition text-sm font-semibold shadow-sm disabled:opacity-50 whitespace-nowrap"
+                  onClick={() => setActiveTab('pagamento')}
+                  className="flex items-center justify-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition text-sm font-semibold shadow-sm whitespace-nowrap"
                 >
                   <CreditCard className="w-4 h-4" />
-                  {assinando ? 'Aguarde...' : 'Assinar agora'}
+                  Como pagar
                 </button>
               </div>
             )}
@@ -360,103 +461,122 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
         {/* PAGAMENTO */}
         {activeTab === 'pagamento' && (
           <div className="space-y-4">
-            {hasActiveSubscription ? (
-              <div className={`rounded-2xl border-2 p-6 ${statusInfo.bg} ${statusInfo.border}`}>
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <Shield className={`w-5 h-5 ${statusInfo.color}`} />
-                      <span className="font-semibold text-gray-800">Assinatura Stripe</span>
-                    </div>
-                    {studentData.plano && (
-                      <p className="text-sm text-gray-600 capitalize">
-                        {PLAN_LABELS[studentData.plano] ?? studentData.plano} · {studentData.periodicidade}
-                      </p>
-                    )}
-                    {studentData.nextPaymentAt && (
-                      <p className="text-xs text-gray-500">
-                        Próxima cobrança:{' '}
-                        <strong>{new Date(studentData.nextPaymentAt).toLocaleDateString('pt-BR')}</strong>
-                      </p>
-                    )}
-                    {studentData.lastPaymentAt && (
-                      <p className="text-xs text-gray-500">
-                        Último pagamento:{' '}
-                        <strong>{new Date(studentData.lastPaymentAt).toLocaleDateString('pt-BR')}</strong>
-                      </p>
-                    )}
-                  </div>
 
-                  <div className="flex flex-col items-start sm:items-end gap-2">
-                    <span className={`px-3 py-1.5 rounded-full text-sm font-bold ${statusInfo.color} ${statusInfo.bg} border ${statusInfo.border}`}>
-                      {statusInfo.label}
-                    </span>
-                    {studentData.stripeCustomerId && (
-                      <button
-                        onClick={openPortal}
-                        className="flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-800 font-medium transition"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        Gerenciar assinatura
-                      </button>
-                    )}
-                  </div>
+            {/* Resumo do plano */}
+            <div className={`rounded-2xl border-2 p-5 sm:p-6 ${statusInfo.bg} ${statusInfo.border}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <CreditCard className={`w-5 h-5 ${statusInfo.color}`} />
+                  <span className="font-semibold text-gray-800">Meu plano</span>
                 </div>
+                <span className={`px-3 py-1.5 rounded-full text-sm font-bold ${statusInfo.color} bg-white border ${statusInfo.border}`}>
+                  {statusInfo.label}
+                </span>
+              </div>
 
-                {stripeStatus === 'overdue' && (
-                  <div className="mt-4 pt-4 border-t border-red-200">
-                    <p className="text-sm text-red-700 font-medium flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4" />
-                      Pagamento em atraso — regularize para manter o acesso.
-                    </p>
+              <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-4 text-sm">
+                {planoRotulo && (
+                  <div>
+                    <dt className="text-xs text-gray-500">Plano</dt>
+                    <dd className="font-semibold text-gray-900 mt-0.5 capitalize">{planoRotulo}</dd>
+                  </div>
+                )}
+                <div>
+                  <dt className="text-xs text-gray-500">Valor</dt>
+                  <dd className="font-semibold text-gray-900 mt-0.5">{formatarMoeda(studentData.monthlyFee)}</dd>
+                </div>
+                {vencimentoISO && (
+                  <div>
+                    <dt className="text-xs text-gray-500">{manualAtivo ? 'Pago até' : 'Vencimento'}</dt>
+                    <dd className="font-semibold text-gray-900 mt-0.5">
+                      {formatarData(vencimentoISO)}
+                      {diasVenc !== null && (
+                        <span className={`block text-xs font-medium ${vencidoSemPagar ? 'text-red-600' : 'text-gray-500'}`}>
+                          {textoVencimento(diasVenc)}
+                        </span>
+                      )}
+                    </dd>
+                  </div>
+                )}
+                {formaPagamento && (
+                  <div>
+                    <dt className="text-xs text-gray-500">Forma de pagamento</dt>
+                    <dd className="font-semibold text-gray-900 mt-0.5">{formaPagamento}</dd>
+                  </div>
+                )}
+                {studentData.lastPaymentAt && (
+                  <div>
+                    <dt className="text-xs text-gray-500">Último pagamento</dt>
+                    <dd className="font-semibold text-gray-900 mt-0.5">{formatarData(studentData.lastPaymentAt)}</dd>
+                  </div>
+                )}
+              </dl>
+
+              {stripeStatus === 'overdue' && (
+                <div className="mt-5 pt-4 border-t border-red-200">
+                  <p className="text-sm text-red-700 font-medium flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    Pagamento em atraso — regularize para manter o acesso.
+                  </p>
+                  {temStripe && (
                     <button
                       onClick={openPortal}
                       className="mt-2 px-4 py-2 bg-red-600 text-white text-sm rounded-xl hover:bg-red-700 transition font-medium"
                     >
                       Regularizar pagamento
                     </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className={`rounded-2xl border-2 p-6 ${
-                stripeStatus === 'cancelled' ? 'border-gray-200 bg-gray-50' : 'border-amber-300 bg-amber-50'
-              }`}>
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div>
-                    <p className="font-semibold text-gray-800">
-                      {stripeStatus === 'cancelled' ? 'Assinatura cancelada' : 'Nenhuma assinatura ativa'}
-                    </p>
-                    {studentData.plano && studentData.periodicidade ? (
-                      <p className="text-sm text-gray-600 mt-1">
-                        Plano disponível:{' '}
-                        <strong className="capitalize">
-                          {PLAN_LABELS[studentData.plano] ?? studentData.plano} · {studentData.periodicidade}
-                        </strong>
+                  )}
+                </div>
+              )}
+
+              {stripeStatus === 'pending' && (
+                <p className="mt-5 pt-4 border-t border-amber-200 text-sm text-amber-700 font-medium flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  Aguardando pagamento. Veja abaixo como pagar e avise {responsavel} depois.
+                </p>
+              )}
+
+              {stripeStatus === 'cancelled' && (
+                <p className="mt-5 pt-4 border-t border-gray-200 text-sm text-gray-600 font-medium">
+                  Seu plano foi cancelado. Fale com {responsavel} para reativar.
+                </p>
+              )}
+            </div>
+
+            {/* Assinatura no cartão (só quem realmente tem) */}
+            {temStripe && (
+              <div className="bg-white rounded-2xl border border-gray-200 p-5 sm:p-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Shield className="w-5 h-5 text-indigo-600" />
+                      <span className="font-semibold text-gray-800">Assinatura no cartão</span>
+                    </div>
+                    {studentData.periodicidade && (
+                      <p className="text-sm text-gray-600 capitalize">
+                        Cobrança {studentData.periodicidade}
                       </p>
-                    ) : (
-                      <p className="text-sm text-gray-500 mt-1">
-                        Entre em contato com a academia para ativar seu plano.
+                    )}
+                    {studentData.nextPaymentAt && (
+                      <p className="text-xs text-gray-500">
+                        Próxima cobrança: <strong>{formatarData(studentData.nextPaymentAt)}</strong>
                       </p>
                     )}
                   </div>
-
-                  {studentData.plano && studentData.periodicidade && (
-                    <button
-                      onClick={assinarAgora}
-                      disabled={assinando}
-                      className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition font-semibold text-sm shadow-sm disabled:opacity-50 whitespace-nowrap"
-                    >
-                      <CreditCard className="w-4 h-4" />
-                      {assinando ? 'Aguarde...' : 'Assinar agora'}
-                    </button>
-                  )}
+                  <button
+                    onClick={openPortal}
+                    className="flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-800 font-medium transition"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    Gerenciar assinatura
+                  </button>
                 </div>
               </div>
             )}
 
+            {/* Pagar via Pix */}
             {pixInfo && (pixInfo.chave || pixInfo.copiaECola) && (
-              <div className="bg-white rounded-2xl border-2 border-emerald-200 p-6">
+              <div className="bg-white rounded-2xl border-2 border-emerald-200 p-5 sm:p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <QrCode className="w-5 h-5 text-emerald-600" />
                   <span className="font-semibold text-gray-800">Pagar via Pix</span>
@@ -468,6 +588,9 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
                   )}
 
                   <div className="flex-1 w-full space-y-3">
+                    <p className="text-sm text-gray-700">
+                      Valor: <strong>{formatarMoeda(studentData.monthlyFee)}</strong>
+                    </p>
                     {pixInfo.nomeTitular && (
                       <p className="text-sm text-gray-600">
                         Titular: <strong>{pixInfo.nomeTitular}</strong>
@@ -495,13 +618,39 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
                       </div>
                     )}
                     <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
-                      Depois de pagar, avise a academia para confirmarem seu pagamento manualmente.
+                      Depois de pagar, avise {responsavel} para confirmar seu pagamento.
                     </p>
                   </div>
                 </div>
               </div>
             )}
 
+            {/* Pagar no cartão (assinatura automática) */}
+            {podeAssinarNoCartao && (
+              <div className="bg-white rounded-2xl border border-gray-200 p-5 sm:p-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="w-5 h-5 text-indigo-600" />
+                      <span className="font-semibold text-gray-800">Pagar no cartão</span>
+                    </div>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Assinatura com cobrança automática, sem precisar lembrar da data.
+                    </p>
+                  </div>
+                  <button
+                    onClick={assinarAgora}
+                    disabled={assinando}
+                    className="flex items-center justify-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition font-semibold text-sm shadow-sm disabled:opacity-50 whitespace-nowrap"
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    {assinando ? 'Aguarde...' : 'Assinar agora'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Como funciona */}
             <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
               <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
                 <TrendingUp className="w-4 h-4 text-indigo-500" />
@@ -509,10 +658,12 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
               </h3>
               <ul className="space-y-2">
                 {[
-                  'As cobranças são automáticas via Stripe',
-                  'Você recebe um email de confirmação a cada pagamento',
-                  'Aceita cartão de crédito, débito e boleto',
-                  'Cancele ou pause quando quiser pelo portal',
+                  `Pague pelo Pix ou combine outra forma com ${responsavel}`,
+                  `Depois que ${responsavel} confirmar, seu status muda para "Em dia" até o próximo vencimento`,
+                  'Se o vencimento passar sem pagamento, o status fica pendente ou em atraso',
+                  ...(temStripe || podeAssinarNoCartao
+                    ? ['No cartão, a cobrança é automática e você gerencia pelo portal de assinatura']
+                    : []),
                 ].map((item, i) => (
                   <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
                     <ChevronRight className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" />
@@ -524,9 +675,10 @@ export const StudentView: React.FC<StudentViewProps> = ({ userId, onLogout }) =>
           </div>
         )}
 
-        {/* TREINOS — escolha de horários + histórico de presenças (somente leitura) */}
+        {/* TREINOS — treino prescrito + escolha de horários + histórico de presenças */}
         {activeTab === 'attendance' && (
           <div className="space-y-4">
+            <TreinoAluno />
             <AgendaAluno />
 
             <div className="grid grid-cols-2 gap-4">

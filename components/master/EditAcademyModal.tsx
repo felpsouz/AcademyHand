@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Modal } from '@/components/common/Modal';
 import { Button } from '@/components/common/Button';
 import { PlanoAcademia } from '@/lib/plans';
@@ -18,6 +18,8 @@ interface EditAcademyModalProps {
 export function EditAcademyModal({ isOpen, onClose, academyId, onLoad, onSave }: EditAcademyModalProps) {
   const { user } = useAuth();
   const [carregando, setCarregando] = useState(true);
+  const [erroCarga, setErroCarga] = useState<string | null>(null);
+  const [tentativa, setTentativa] = useState(0);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -42,14 +44,31 @@ export function EditAcademyModal({ isOpen, onClose, academyId, onLoad, onSave }:
   const [disparando, setDisparando] = useState(false);
   const [resultadoDisparo, setResultadoDisparo] = useState<string | null>(null);
 
+  // Guarda o onLoad mais recente sem fazer o efeito de carga rodar de novo
+  // (se o pai recriar a função, o formulário não pode ser recarregado no meio da edição)
+  const onLoadRef = useRef(onLoad);
+  onLoadRef.current = onLoad;
+
+  // Ao fechar, volta para "carregando" — assim, ao reabrir, nunca aparecem os dados da academia anterior
+  useEffect(() => {
+    if (!isOpen) setCarregando(true);
+  }, [isOpen]);
+
   useEffect(() => {
     if (!isOpen || !academyId) return;
 
+    let cancelado = false;
+
     setCarregando(true);
     setErro(null);
+    setErroCarga(null);
+    setResultadoTeste(null);
+    setResultadoDisparo(null);
+    setTelefoneTeste('');
 
-    onLoad(academyId)
+    onLoadRef.current(academyId)
       .then((data) => {
+        if (cancelado) return;
         setNome(data.nome ?? '');
         setUsaGraduacao(data.usaGraduacao !== false);
         setUsaFacial(data.usaFacial === true);
@@ -66,9 +85,17 @@ export function EditAcademyModal({ isOpen, onClose, academyId, onLoad, onSave }:
         setPixCopiaECola(data.pix?.copiaECola ?? '');
         setLembretesWhatsapp(data.lembretesWhatsapp === true);
       })
-      .catch((err) => setErro(err.message || 'Erro ao carregar academia'))
-      .finally(() => setCarregando(false));
-  }, [isOpen, academyId, onLoad]);
+      .catch((err) => {
+        if (!cancelado) setErroCarga(err.message || 'Erro ao carregar academia');
+      })
+      .finally(() => {
+        if (!cancelado) setCarregando(false);
+      });
+
+    return () => {
+      cancelado = true;
+    };
+  }, [isOpen, academyId, tentativa]);
 
   const handleDispararLembretes = async () => {
     if (!user || !academyId) return;
@@ -159,6 +186,18 @@ export function EditAcademyModal({ isOpen, onClose, academyId, onLoad, onSave }:
     <Modal isOpen={isOpen} onClose={onClose} title="Editar academia" size="sm">
       {carregando ? (
         <p className="text-sm text-gray-500 py-6 text-center">Carregando...</p>
+      ) : erroCarga ? (
+        <div className="py-6 text-center space-y-4">
+          <p className="text-sm text-red-600">{erroCarga}</p>
+          <div className="flex gap-3 justify-center">
+            <Button type="button" variant="secondary" onClick={onClose}>
+              Fechar
+            </Button>
+            <Button type="button" variant="primary" onClick={() => setTentativa((t) => t + 1)}>
+              Tentar novamente
+            </Button>
+          </div>
+        </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -182,14 +221,19 @@ export function EditAcademyModal({ isOpen, onClose, academyId, onLoad, onSave }:
             Usa sistema de faixas/graduação
           </label>
 
-          <label className="flex items-center gap-2 text-sm text-gray-700">
+          <label className="flex items-start gap-2 text-sm text-gray-700">
             <input
               type="checkbox"
               checked={usaAgenda}
               onChange={(e) => setUsaAgenda(e.target.checked)}
-              className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+              className="mt-0.5 rounded border-gray-300 text-red-600 focus:ring-red-500"
             />
-            Usa agenda de horários individuais (personal)
+            <span>
+              Modo personal (agenda + treinos)
+              <span className="block text-xs text-gray-400">
+                Alunos individuais: o aluno escolhe o horário na grade do personal e vê o treino prescrito.
+              </span>
+            </span>
           </label>
 
           <label className="flex items-center gap-2 text-sm text-gray-700">

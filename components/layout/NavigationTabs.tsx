@@ -18,20 +18,20 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({ activeTab, onTab
   ];
 
   return (
-    <nav className="flex gap-2 mt-4 overflow-x-auto">
+    <nav className="grid grid-flow-col auto-cols-fr gap-1 sm:flex sm:gap-2 mt-4 overflow-x-auto">
       {tabs.map(tab => {
         const Icon = tab.icon;
         return (
           <button
             key={tab.id}
             onClick={() => onTabChange(tab.id)}
-            className={`px-4 py-2 rounded-lg whitespace-nowrap transition-colors flex items-center gap-2 ${
+            className={`px-2 py-2 sm:px-4 rounded-lg whitespace-nowrap transition-colors flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 text-xs sm:text-base ${
               activeTab === tab.id
                 ? 'bg-red-600 text-white'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            <Icon className="w-4 h-4" />
+            <Icon className="w-5 h-5 sm:w-4 sm:h-4" />
             {tab.label}
           </button>
         );

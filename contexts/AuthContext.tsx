@@ -17,10 +17,10 @@ interface UserData {
   role: 0 | 1 | 2; // 0 = admin, 1 = student, 2 = master
   studentId?: string;
   academyId: string; // isolamento multi-tenant: identifica a academia do usuário
-  academyName?: string; // nome da academia, copiado na criação (client não lê "academies" direto)
+  academyName?: string; // nome da academia (atualizado a cada login pela API)
   usaGraduacao?: boolean; // controla se a UI mostra campos de faixa/graduação
   usaFacial?: boolean; // controla se a UI mostra foto/sincronização com leitor facial
-  usaAgenda?: boolean; // controla se a UI mostra a agenda de horários (vem da API, não do doc do usuário)
+  usaAgenda?: boolean; // controla se a UI mostra agenda + treinos (modo personal)
 }
 
 interface AuthContextType {
@@ -58,9 +58,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             return;
           }
 
-          // Recursos opcionais da academia, informados pelo servidor.
-          // Se a checagem falhar, ficam desligados (o login não é derrubado).
-          let usaAgenda = false;
+          // Configurações atuais da academia, informadas pelo servidor.
+          // Elas têm prioridade sobre a cópia guardada no documento do usuário
+          // (que fica desatualizada quando o master edita a academia).
+          // Se a checagem falhar, usamos a cópia do usuário e a agenda fica desligada.
+          let configAcademia: Partial<UserData> = { usaAgenda: false };
 
           // Verifica se a academia do usuário ainda está ativa
           // (master é sempre liberado, a própria rota já trata isso)
@@ -93,7 +95,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 console.warn('Resposta inesperada ao verificar status da academia:', status);
               }
 
-              usaAgenda = status.usaAgenda === true;
+              if (typeof status.usaGraduacao === 'boolean') configAcademia.usaGraduacao = status.usaGraduacao;
+              if (typeof status.usaFacial === 'boolean') configAcademia.usaFacial = status.usaFacial;
+              if (typeof status.nome === 'string' && status.nome) configAcademia.academyName = status.nome;
+              configAcademia.usaAgenda = status.usaAgenda === true;
             } catch (statusError) {
               // Se a checagem falhar por erro de rede/servidor, não bloqueamos o login
               // (evita travar todo mundo fora por uma falha temporária da rota).
@@ -101,7 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
           }
 
-          setUserData(data ? { ...data, usaAgenda } : data);
+          setUserData(data ? { ...data, ...configAcademia } : data);
         } catch (error) {
           console.error('Error fetching user data:', error);
           setUserData(null);

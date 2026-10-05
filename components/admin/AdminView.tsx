@@ -1,7 +1,6 @@
 'use client'
 
 import React, { useState } from 'react';
-import { Users } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { NavigationTabs } from '@/components/layout/NavigationTabs';
 import { DashboardTab } from '@/components/dashboard/DashboardTab';
@@ -41,7 +40,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onLogout }) => {
         subtitle="Painel Administrativo"
         onLogout={onLogout}
       />
-      <main className="max-w-7xl mx-auto px-4 py-8">
+      <main className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
         <NavigationTabs activeTab={activeTab} onTabChange={setActiveTab} />
         {renderTabContent()}
       </main>
