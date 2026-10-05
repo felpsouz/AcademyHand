@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import type { DocumentReference } from 'firebase-admin/firestore';
 import {
   adminDb,
   verifyUserRequest,
@@ -45,6 +46,37 @@ async function exigirAgendaHabilitada(academyId: string) {
   if (!snap.exists || snap.data()?.usaAgenda !== true) {
     throw new AgendaError('A agenda de horários não está habilitada para esta academia', 403);
   }
+}
+
+function lerDias(valor: unknown): number[] {
+  const dias: number[] = Array.isArray(valor) ? Array.from(new Set<number>(valor.map(Number))) : [];
+  if (dias.some(d => !Number.isInteger(d) || d < 0 || d > 6)) {
+    throw new AgendaError('Dia da semana inválido');
+  }
+  return dias;
+}
+
+// Apaga só os horários que continuam LIVRES no momento da exclusão (cada bloco roda numa
+// transação, então um aluno que reservou nesse instante nunca perde o horário por engano).
+async function apagarLivres(db: ReturnType<typeof adminDb>, refs: DocumentReference[]): Promise<number> {
+  let removidos = 0;
+
+  for (let i = 0; i < refs.length; i += 200) {
+    const bloco = refs.slice(i, i + 200);
+    removidos += await db.runTransaction(async tx => {
+      const snaps = await tx.getAll(...bloco);
+      let n = 0;
+      snaps.forEach(s => {
+        if (s.exists && !s.data()?.studentId) {
+          tx.delete(s.ref);
+          n++;
+        }
+      });
+      return n;
+    });
+  }
+
+  return removidos;
 }
 
 // ── GET: lista os horários ────────────────────────────────────────────────────
@@ -102,7 +134,7 @@ export async function GET(request: Request) {
   }
 }
 
-// ── POST: ações (gerar, remover, reservar, liberar, liberarAluno) ─────────────
+// ── POST: ações (gerar, limpar, remover, mover, reservar, liberar, liberarAluno) ──
 export async function POST(request: Request) {
   try {
     const u = await verifyUserRequest(request);
@@ -113,7 +145,9 @@ export async function POST(request: Request) {
 
     switch (body?.acao) {
       case 'gerar':        return await gerar(u, body);
+      case 'limpar':       return await limpar(u, body);
       case 'remover':      return await remover(u, body);
+      case 'mover':        return await mover(u, body);
       case 'reservar':     return await reservar(u, body);
       case 'liberar':      return await liberar(u, body);
       case 'liberarAluno': return await liberarAluno(u, body);
@@ -124,16 +158,16 @@ export async function POST(request: Request) {
   }
 }
 
-// Personal: cria os horários disponíveis (não mexe nos que já existem)
+// Personal: cria os horários disponíveis.
+// Com substituir=true, também remove os horários LIVRES dos mesmos dias que não fazem parte
+// da nova grade (e atualiza a duração dos que continuam). Horário com aluno nunca é alterado.
 async function gerar(u: UsuarioVerificado, body: any) {
   exigirAdmin(u);
 
-  const dias: number[] = Array.isArray(body.dias)
-    ? Array.from(new Set<number>(body.dias.map(Number)))
-    : [];
-  if (dias.length === 0 || dias.some(d => !Number.isInteger(d) || d < 0 || d > 6)) {
-    throw new AgendaError('Selecione ao menos um dia da semana');
-  }
+  const dias = lerDias(body.dias);
+  if (dias.length === 0) throw new AgendaError('Selecione ao menos um dia da semana');
+
+  const substituir = body.substituir === true;
 
   const { inicio, fim } = body;
   const duracao = Number(body.duracao);
@@ -153,21 +187,53 @@ async function gerar(u: UsuarioVerificado, body: any) {
   }
 
   const db = adminDb();
+  const colecao = db.collection(COLECAO);
+
   const candidatos = dias.flatMap(dia =>
     horarios.map(time => ({
       dia,
       time,
-      ref: db.collection(COLECAO).doc(slotId(u.academyId, dia, time)),
+      ref: colecao.doc(slotId(u.academyId, dia, time)),
     }))
   );
+  const alvoIds = new Set(candidatos.map(c => c.ref.id));
 
+  // 1) Modo substituir: remove os livres desses dias que não estão na nova grade
+  let removidos = 0;
+  if (substituir) {
+    const snap = await colecao.where('academyId', '==', u.academyId).get();
+    const refsParaApagar = snap.docs
+      .filter(d => {
+        const s = d.data();
+        return dias.includes(s.dayOfWeek) && !s.studentId && !alvoIds.has(d.id);
+      })
+      .map(d => d.ref);
+
+    removidos = await apagarLivres(db, refsParaApagar);
+  }
+
+  // 2) Cria os que faltam (e, no modo substituir, ajusta a duração dos livres que continuam)
   const existentes = await db.getAll(...candidatos.map(c => c.ref));
   const batch = db.batch();
   const agora = new Date().toISOString();
   let criados = 0;
+  let atualizados = 0;
+  let ignorados = 0;
 
   candidatos.forEach((c, i) => {
-    if (existentes[i].exists) return;
+    const atual = existentes[i];
+
+    if (atual.exists) {
+      const s = atual.data()!;
+      if (substituir && !s.studentId && s.duration !== duracao) {
+        batch.update(c.ref, { duration: duracao });
+        atualizados++;
+      } else {
+        ignorados++;
+      }
+      return;
+    }
+
     batch.create(c.ref, {
       academyId: u.academyId,
       dayOfWeek: c.dia,
@@ -181,17 +247,48 @@ async function gerar(u: UsuarioVerificado, body: any) {
     criados++;
   });
 
-  if (criados > 0) await batch.commit();
+  if (criados + atualizados > 0) await batch.commit();
 
-  return NextResponse.json({ ok: true, criados, ignorados: candidatos.length - criados });
+  return NextResponse.json({ ok: true, criados, atualizados, removidos, ignorados });
 }
 
-// Personal: remove um horário da grade (só se estiver livre)
+// Personal: remove TODOS os horários livres dos dias escolhidos (sem "dias" = todos os dias).
+// Horários com aluno ficam como estão e são contados na resposta.
+async function limpar(u: UsuarioVerificado, body: any) {
+  exigirAdmin(u);
+
+  const dias = lerDias(body.dias);
+
+  const db = adminDb();
+  const snap = await db.collection(COLECAO).where('academyId', '==', u.academyId).get();
+
+  const refsLivres: DocumentReference[] = [];
+  let ocupadosMantidos = 0;
+
+  snap.docs.forEach(d => {
+    const s = d.data();
+    if (dias.length > 0 && !dias.includes(s.dayOfWeek)) return;
+    if (s.studentId) {
+      ocupadosMantidos++;
+    } else {
+      refsLivres.push(d.ref);
+    }
+  });
+
+  const removidos = await apagarLivres(db, refsLivres);
+
+  return NextResponse.json({ ok: true, removidos, ocupadosMantidos });
+}
+
+// Personal: remove um horário da grade. Se estiver ocupado, só com forcar=true
+// (o aluno perde a vaga e o horário sai da grade).
 async function remover(u: UsuarioVerificado, body: any) {
   exigirAdmin(u);
 
   const id = String(body.slotId ?? '');
   if (!id) throw new AgendaError('Horário não informado');
+
+  const forcar = body.forcar === true;
 
   const db = adminDb();
   const ref = db.collection(COLECAO).doc(id);
@@ -201,10 +298,79 @@ async function remover(u: UsuarioVerificado, body: any) {
     if (!snap.exists || snap.data()?.academyId !== u.academyId) {
       throw new AgendaError('Horário não encontrado', 404);
     }
-    if (snap.data()?.studentId) {
+    if (snap.data()?.studentId && !forcar) {
       throw new AgendaError('Horário ocupado: libere o aluno antes de remover', 409);
     }
     tx.delete(ref);
+  });
+
+  return NextResponse.json({ ok: true });
+}
+
+// Personal: move o aluno de um horário para outro (dia + hora). Se o destino não existe na
+// grade, ele é criado; se existe e está livre, é ocupado. O horário de origem fica livre.
+// O total de treinos do aluno não muda, então o limite do plano não entra aqui.
+async function mover(u: UsuarioVerificado, body: any) {
+  exigirAdmin(u);
+
+  const origemId = String(body.slotId ?? '');
+  if (!origemId) throw new AgendaError('Horário de origem não informado');
+
+  const dia = Number(body.dia);
+  const horario = String(body.horario ?? '');
+  if (!Number.isInteger(dia) || dia < 0 || dia > 6) throw new AgendaError('Dia de destino inválido');
+  if (!HORA_REGEX.test(horario)) throw new AgendaError('Horário de destino inválido');
+
+  const db = adminDb();
+  const colecao = db.collection(COLECAO);
+  const origemRef = colecao.doc(origemId);
+  const destinoRef = colecao.doc(slotId(u.academyId, dia, horario));
+
+  if (origemRef.id === destinoRef.id) {
+    throw new AgendaError('O aluno já está nesse horário');
+  }
+
+  await db.runTransaction(async tx => {
+    const [origemSnap, destinoSnap] = await Promise.all([tx.get(origemRef), tx.get(destinoRef)]);
+
+    if (!origemSnap.exists || origemSnap.data()?.academyId !== u.academyId) {
+      throw new AgendaError('Horário de origem não encontrado', 404);
+    }
+
+    const origem = origemSnap.data()!;
+    if (!origem.studentId) {
+      throw new AgendaError('Esse horário não tem aluno para mover');
+    }
+
+    const agora = new Date().toISOString();
+    const dadosAluno = {
+      studentId: origem.studentId,
+      studentName: origem.studentName ?? null,
+      bookedAt: agora,
+      bookedBy: u.uid,
+    };
+
+    if (destinoSnap.exists) {
+      const destino = destinoSnap.data()!;
+      if (destino.academyId !== u.academyId) {
+        throw new AgendaError('Horário de destino não encontrado', 404);
+      }
+      if (destino.studentId) {
+        throw new AgendaError('O horário de destino já está ocupado por outro aluno', 409);
+      }
+      tx.update(destinoRef, dadosAluno);
+    } else {
+      tx.create(destinoRef, {
+        academyId: u.academyId,
+        dayOfWeek: dia,
+        time: horario,
+        duration: origem.duration ?? 60,
+        createdAt: agora,
+        ...dadosAluno,
+      });
+    }
+
+    tx.update(origemRef, { studentId: null, studentName: null, bookedAt: null, bookedBy: null });
   });
 
   return NextResponse.json({ ok: true });

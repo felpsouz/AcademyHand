@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Users, DollarSign, CheckCircle2, AlertCircle,
   TrendingUp, CreditCard, History, RefreshCw,
-  CheckCircle, Clock, Eye, EyeOff,
+  CheckCircle, Clock, Eye, EyeOff, XCircle,
 } from 'lucide-react';
 import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '@/services/firebase/config';
@@ -19,7 +19,34 @@ interface Payment {
   description?: string;
   status: string;
   type: 'subscription' | 'one_time';
+  source?: string; // 'manual' = dinheiro/Pix confirmado pelo admin; ausente = veio do Stripe
   paidAt: string;
+}
+
+const FUSO = 'America/Sao_Paulo';
+
+// Pagamentos nesses status não entram na receita (estornados, falhos, cancelados...)
+const STATUS_NAO_RECEBIDO = ['refunded', 'failed', 'cancelled', 'canceled', 'pending', 'unpaid'];
+
+const foiRecebido = (p: Payment) => !STATUS_NAO_RECEBIDO.includes((p.status ?? '').toLowerCase());
+
+type Situacao = 'active' | 'overdue' | 'cancelled' | 'pending';
+
+// Situação de pagamento do aluno. Quem está "pendente" mas já passou do vencimento é contado
+// como em atraso: o status "overdue" só é gravado pelo Stripe, então quem paga por Pix/dinheiro
+// nunca apareceria como inadimplente.
+function situacaoPagamento(s: Student, inicioDeHoje: number): Situacao {
+  const bruto = (s.stripePaymentStatus ?? 'pending') as Situacao;
+  if (bruto === 'active' || bruto === 'cancelled' || bruto === 'overdue') return bruto;
+
+  if (s.status === 'active') {
+    const venc = (s as any).nextPaymentAt ?? (s as any).nextPaymentDue ?? null;
+    if (venc) {
+      const t = new Date(venc).getTime();
+      if (!Number.isNaN(t) && t < inicioDeHoje) return 'overdue';
+    }
+  }
+  return 'pending';
 }
 
 export const DashboardTab: React.FC = () => {
@@ -31,17 +58,21 @@ export const DashboardTab: React.FC = () => {
   const [todayAttendance, setTodayAttendance] = useState(0);
   const [loadingStudents, setLoadingStudents] = useState(true);
   const [loadingPayments, setLoadingPayments] = useState(true);
+  const [erroPagamentos, setErroPagamentos] = useState(false);
   const [hideValues, setHideValues] = useState(false);
 
-  // "Relógio" que força o recálculo da receita periodicamente. Sem isso, se
-  // nada mudar em students/payments exatamente na virada do mês, o cálculo
-  // continuaria usando o mês anterior até algum evento novo disparar o
-  // onSnapshot — o que pode nunca acontecer se o dashboard ficar parado.
+  // "Relógio" que força o recálculo periodicamente. Sem isso, se nada mudar em
+  // students/payments na virada do mês (ou do dia), o cálculo continuaria usando
+  // o período anterior até algum evento novo disparar o onSnapshot.
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 60_000); // checa a cada 1 min
     return () => clearInterval(interval);
   }, []);
+
+  // Muda só quando vira o dia / o mês — são as chaves que refazem as consultas abaixo
+  const hojeStr = now.toLocaleDateString('pt-BR', { timeZone: FUSO });
+  const mesChave = `${now.getFullYear()}-${now.getMonth()}`;
 
   // Alunos — em tempo real: qualquer mudança (status, pagamento manual,
   // webhook do Stripe atualizando stripePaymentStatus) aparece na hora.
@@ -65,14 +96,20 @@ export const DashboardTab: React.FC = () => {
     return () => unsubscribe();
   }, [academyId]);
 
-  // Pagamentos — em tempo real: é aqui que uma cobrança paga pelo Stripe
-  // (chegando via webhook, no servidor) aparece sem precisar recarregar a página.
+  // Pagamentos — em tempo real. Lê só desde o início do MÊS ANTERIOR (cobre a receita do mês
+  // e a lista de recentes), em vez de baixar todos os pagamentos de todos os tempos.
   useEffect(() => {
     if (!academyId) { setLoadingPayments(false); return; }
+
+    const hoje = new Date();
+    const desde = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1).toISOString();
+
+    setErroPagamentos(false);
 
     const q = query(
       collection(db, 'payments'),
       where('academyId', '==', academyId),
+      where('paidAt', '>=', desde),
       orderBy('paidAt', 'desc')
     );
     const unsubscribe = onSnapshot(
@@ -83,23 +120,24 @@ export const DashboardTab: React.FC = () => {
         setLoadingPayments(false);
       },
       (err) => {
-        console.warn('Payments não disponível (verifique se o índice já foi criado):', err);
+        // Antes isso era silencioso e a receita aparecia como R$ 0,00. Agora o aviso fica visível.
+        console.error('Erro ao carregar pagamentos (índice do Firestore ou permissão?):', err);
+        setErroPagamentos(true);
         setLoadingPayments(false);
       }
     );
 
     return () => unsubscribe();
-  }, [academyId]);
+  }, [academyId, mesChave]);
 
-  // Presenças de hoje — também em tempo real
+  // Presenças de hoje — em tempo real. Refaz a consulta quando o dia vira.
   useEffect(() => {
     if (!academyId) { setTodayAttendance(0); return; }
 
-    const todayStr = new Date().toLocaleDateString('pt-BR');
     const q = query(
       collection(db, 'attendance'),
       where('academyId', '==', academyId),
-      where('date', '==', todayStr)
+      where('date', '==', hojeStr)
     );
     const unsubscribe = onSnapshot(
       q,
@@ -108,40 +146,45 @@ export const DashboardTab: React.FC = () => {
     );
 
     return () => unsubscribe();
-  }, [academyId]);
+  }, [academyId, hojeStr]);
 
   // Estatísticas derivadas — recalculadas automaticamente sempre que
   // students/payments mudarem (não precisa de nenhum "refresh" manual)
   const stats = useMemo(() => {
-    const activeStudents = students.filter(s => s.status === 'active');
-    const stripeActive  = students.filter(s => s.stripePaymentStatus === 'active').length;
-    const stripeOverdue = students.filter(s => s.stripePaymentStatus === 'overdue').length;
-    const stripePending = students.filter(s => !s.stripePaymentStatus || s.stripePaymentStatus === 'pending').length;
+    const inicioDeHoje = new Date(now);
+    inicioDeHoje.setHours(0, 0, 0, 0);
 
-    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthPayments = payments.filter(p => new Date(p.paidAt) >= firstDayOfMonth);
-    const monthlyRevenue = monthPayments.reduce((sum, p) => sum + p.amount, 0);
-    const monthlySubscriptions = monthPayments.filter(p => p.type === 'subscription').reduce((sum, p) => sum + p.amount, 0);
-    const monthlyOneTime = monthPayments.filter(p => p.type === 'one_time').reduce((sum, p) => sum + p.amount, 0);
+    const situacoes = students.map(s => situacaoPagamento(s, inicioDeHoje.getTime()));
+    const contar = (alvo: Situacao) => situacoes.filter(x => x === alvo).length;
+
+    const inicioDoMes = new Date(now.getFullYear(), now.getMonth(), 1);
+    const doMes = payments.filter(p => foiRecebido(p) && new Date(p.paidAt) >= inicioDoMes);
+    const soma = (lista: Payment[]) => lista.reduce((sum, p) => sum + p.amount, 0);
+
+    const monthlyRevenue = soma(doMes);
+    const monthlyManual = soma(doMes.filter(p => p.source === 'manual'));
 
     return {
       totalStudents: students.length,
-      activeStudents: activeStudents.length,
-      stripeActive,
-      stripeOverdue,
-      stripePending,
+      activeStudents: students.filter(s => s.status === 'active').length,
+      stripeActive: contar('active'),
+      stripeOverdue: contar('overdue'),
+      stripePending: contar('pending'),
+      stripeCancelled: contar('cancelled'),
       monthlyRevenue,
-      monthlySubscriptions,
-      monthlyOneTime,
+      monthlySubscriptions: soma(doMes.filter(p => p.type === 'subscription')),
+      monthlyOneTime: soma(doMes.filter(p => p.type === 'one_time')),
+      monthlyManual,
+      monthlyStripe: monthlyRevenue - monthlyManual,
     };
   }, [students, payments, now]);
 
   const recentPayments = useMemo(() => {
     const studentMap = Object.fromEntries(students.map(s => [s.id, s.name]));
-    return payments.slice(0, 5).map(p => ({
-      ...p,
-      studentName: studentMap[p.studentId] ?? 'Aluno',
-    }));
+    return payments
+      .filter(foiRecebido)
+      .slice(0, 5)
+      .map(p => ({ ...p, studentName: studentMap[p.studentId] ?? 'Aluno' }));
   }, [payments, students]);
 
   const formatCurrency = (v: number) =>
@@ -152,16 +195,17 @@ export const DashboardTab: React.FC = () => {
   const maskNumber = (v: number) => hideValues ? '••' : String(v);
 
   const formatTime = (dateStr: string) => {
-    const d   = new Date(dateStr);
-    const now = new Date();
-    const ms  = now.getTime() - d.getTime();
+    const d = new Date(dateStr);
+    const ms = Math.max(0, now.getTime() - d.getTime()); // evita "-3min atrás" por diferença de relógio
     const mins  = Math.floor(ms / 60000);
     const hours = Math.floor(ms / 3600000);
     const days  = Math.floor(ms / 86400000);
-    if (mins  < 60)  return `${mins}min atrás`;
-    if (hours < 24)  return `${hours}h atrás`;
+    if (mins  < 1)  return 'agora';
+    if (mins  < 60) return `${mins}min atrás`;
+    if (hours < 24) return `${hours}h atrás`;
     if (days  === 1) return 'Ontem';
-    return `${days} dias atrás`;
+    if (days  < 7)  return `${days} dias atrás`;
+    return d.toLocaleDateString('pt-BR');
   };
 
   const pct = (v: number, total: number) => (total > 0 ? Math.round((v / total) * 100) : 0);
@@ -179,8 +223,18 @@ export const DashboardTab: React.FC = () => {
     );
   }
 
+  const linhasStatus = [
+    { label: 'Em dia',    value: stats.stripeActive,    color: 'bg-emerald-500', icon: <CheckCircle className="w-4 h-4 text-emerald-600" />, textColor: 'text-emerald-700' },
+    { label: 'Em atraso', value: stats.stripeOverdue,   color: 'bg-red-500',     icon: <AlertCircle className="w-4 h-4 text-red-600" />,     textColor: 'text-red-700' },
+    { label: 'Pendente',  value: stats.stripePending,   color: 'bg-amber-400',   icon: <Clock className="w-4 h-4 text-amber-600" />,          textColor: 'text-amber-700' },
+    // Só aparece quando existe alguém cancelado — sem isso as barras não fechavam 100%
+    ...(stats.stripeCancelled > 0
+      ? [{ label: 'Cancelado', value: stats.stripeCancelled, color: 'bg-gray-400', icon: <XCircle className="w-4 h-4 text-gray-500" />, textColor: 'text-gray-600' }]
+      : []),
+  ];
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
 
       {/* Header com botão olhinho */}
       <div className="flex items-center justify-end">
@@ -195,61 +249,68 @@ export const DashboardTab: React.FC = () => {
         </button>
       </div>
 
+      {erroPagamentos && (
+        <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 sm:p-4 text-sm">
+          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <p>
+            Não foi possível carregar os pagamentos, então a receita e a lista de recentes podem estar
+            incompletas. Se o problema continuar, abra o console do navegador (F12): o Firestore mostra
+            um link para criar o índice que falta.
+          </p>
+        </div>
+      )}
+
       {/* Cards principais */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-sm text-gray-500">Total de Alunos</span>
-            <Users className="w-5 h-5 text-blue-500" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100">
+          <div className="flex items-center justify-between mb-2 sm:mb-3">
+            <span className="text-xs sm:text-sm text-gray-500">Total de Alunos</span>
+            <Users className="w-4 h-4 sm:w-5 sm:h-5 text-blue-500 flex-shrink-0" />
           </div>
-          <p className="text-3xl font-bold text-gray-900">{maskNumber(stats.totalStudents)}</p>
+          <p className="text-2xl sm:text-3xl font-bold text-gray-900">{maskNumber(stats.totalStudents)}</p>
           <p className="text-xs text-gray-400 mt-1">{maskNumber(stats.activeStudents)} ativos</p>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-sm text-gray-500">Receita do Mês</span>
-            <DollarSign className="w-5 h-5 text-emerald-500" />
+        <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100">
+          <div className="flex items-center justify-between mb-2 sm:mb-3">
+            <span className="text-xs sm:text-sm text-gray-500">Receita do Mês</span>
+            <DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-500 flex-shrink-0" />
           </div>
-          <p className="text-3xl font-bold text-gray-900">{formatCurrency(stats.monthlyRevenue)}</p>
-          <p className="text-xs text-gray-400 mt-1">via Stripe</p>
+          <p className="text-xl sm:text-3xl font-bold text-gray-900 break-words">{formatCurrency(stats.monthlyRevenue)}</p>
+          <p className="text-xs text-gray-400 mt-1">Stripe + manual</p>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-sm text-gray-500">Presenças Hoje</span>
-            <CheckCircle2 className="w-5 h-5 text-purple-500" />
+        <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100">
+          <div className="flex items-center justify-between mb-2 sm:mb-3">
+            <span className="text-xs sm:text-sm text-gray-500">Presenças Hoje</span>
+            <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 text-purple-500 flex-shrink-0" />
           </div>
-          <p className="text-3xl font-bold text-gray-900">{maskNumber(todayAttendance)}</p>
+          <p className="text-2xl sm:text-3xl font-bold text-gray-900">{maskNumber(todayAttendance)}</p>
           <p className="text-xs text-gray-400 mt-1">
-            {hideValues ? '••%' : `${pct(todayAttendance, stats.activeStudents)}% dos ativos`}
+            {hideValues ? '••%' : `${Math.min(100, pct(todayAttendance, stats.activeStudents))}% dos ativos`}
           </p>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-sm text-gray-500">Inadimplentes</span>
-            <AlertCircle className="w-5 h-5 text-orange-500" />
+        <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100">
+          <div className="flex items-center justify-between mb-2 sm:mb-3">
+            <span className="text-xs sm:text-sm text-gray-500">Inadimplentes</span>
+            <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 text-orange-500 flex-shrink-0" />
           </div>
-          <p className="text-3xl font-bold text-gray-900">{maskNumber(stats.stripeOverdue)}</p>
+          <p className="text-2xl sm:text-3xl font-bold text-gray-900">{maskNumber(stats.stripeOverdue)}</p>
           <p className="text-xs text-gray-400 mt-1">pagamentos em atraso</p>
         </div>
       </div>
 
-      {/* Status Stripe + Receita */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Status das assinaturas + Receita */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+        <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100">
           <h3 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
             <CreditCard className="w-4 h-4 text-red-600" />
-            Status das Assinaturas
+            Status dos Pagamentos
           </h3>
           <div className="space-y-4">
-            {[
-              { label: 'Em dia',    value: stats.stripeActive,  color: 'bg-emerald-500', icon: <CheckCircle className="w-4 h-4 text-emerald-600" />, textColor: 'text-emerald-700' },
-              { label: 'Em atraso', value: stats.stripeOverdue, color: 'bg-red-500',     icon: <AlertCircle className="w-4 h-4 text-red-600" />,     textColor: 'text-red-700' },
-              { label: 'Pendente',  value: stats.stripePending, color: 'bg-amber-400',   icon: <Clock className="w-4 h-4 text-amber-600" />,          textColor: 'text-amber-700' },
-            ].map(row => (
+            {linhasStatus.map(row => (
               <div key={row.label}>
                 <div className="flex items-center justify-between mb-1.5">
                   <div className="flex items-center gap-2">
@@ -271,14 +332,14 @@ export const DashboardTab: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+        <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100">
           <h3 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-red-600" />
             Receita do Mês
           </h3>
           <div className="space-y-4">
             <div>
-              <div className="flex justify-between mb-1.5">
+              <div className="flex justify-between gap-2 mb-1.5">
                 <span className="text-sm text-gray-600">Mensalidades</span>
                 <span className="text-sm font-semibold text-emerald-600">
                   {formatCurrency(stats.monthlySubscriptions)}
@@ -293,7 +354,7 @@ export const DashboardTab: React.FC = () => {
             </div>
 
             <div>
-              <div className="flex justify-between mb-1.5">
+              <div className="flex justify-between gap-2 mb-1.5">
                 <span className="text-sm text-gray-600">Cobranças avulsas</span>
                 <span className="text-sm font-semibold text-blue-600">
                   {formatCurrency(stats.monthlyOneTime)}
@@ -307,10 +368,25 @@ export const DashboardTab: React.FC = () => {
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-2.5">
+                <p className="text-xs text-indigo-700">Via Stripe</p>
+                <p className="text-sm font-semibold text-indigo-800 mt-0.5 break-words">
+                  {formatCurrency(stats.monthlyStripe)}
+                </p>
+              </div>
+              <div className="bg-amber-50 border border-amber-100 rounded-lg p-2.5">
+                <p className="text-xs text-amber-700">Manual (dinheiro/Pix)</p>
+                <p className="text-sm font-semibold text-amber-800 mt-0.5 break-words">
+                  {formatCurrency(stats.monthlyManual)}
+                </p>
+              </div>
+            </div>
+
             <div className="pt-3 border-t border-gray-100">
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center gap-2">
                 <span className="font-semibold text-gray-900">Total do mês</span>
-                <span className="text-xl font-bold text-emerald-600">
+                <span className="text-lg sm:text-xl font-bold text-emerald-600">
                   {formatCurrency(stats.monthlyRevenue)}
                 </span>
               </div>
@@ -320,7 +396,7 @@ export const DashboardTab: React.FC = () => {
       </div>
 
       {/* Pagamentos recentes */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+      <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100">
         <h3 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
           <History className="w-4 h-4 text-red-600" />
           Pagamentos Recentes
@@ -331,20 +407,20 @@ export const DashboardTab: React.FC = () => {
           </p>
         ) : (
           <div className="divide-y divide-gray-50">
-            {recentPayments.map((p, i) => (
-              <div key={i} className="flex items-center justify-between py-3">
-                <div className="flex items-center gap-3">
+            {recentPayments.map(p => (
+              <div key={p.id} className="flex items-center justify-between gap-3 py-3">
+                <div className="flex items-center gap-3 min-w-0">
                   <div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center flex-shrink-0">
                     <CreditCard className="w-4 h-4 text-emerald-600" />
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">{p.studentName}</p>
-                    <p className="text-xs text-gray-400">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{p.studentName}</p>
+                    <p className="text-xs text-gray-400 truncate">
                       {p.type === 'subscription' ? 'Mensalidade' : p.description ?? 'Cobrança avulsa'}
                     </p>
                   </div>
                 </div>
-                <div className="text-right">
+                <div className="text-right flex-shrink-0">
                   <p className="text-sm font-semibold text-emerald-600">
                     +{formatCurrency(p.amount)}
                   </p>

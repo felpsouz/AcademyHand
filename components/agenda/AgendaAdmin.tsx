@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Plus, RefreshCw, Trash2, UserMinus, UserPlus } from 'lucide-react';
+import { ArrowRight, CalendarDays, Plus, RefreshCw, Trash2, UserMinus, UserPlus } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/useToast';
 import { Modal } from '@/components/common/Modal';
@@ -34,6 +34,8 @@ export const AgendaAdmin: React.FC<AgendaAdminProps> = ({ students }) => {
   const [selecionado, setSelecionado] = useState<AgendaSlotAdmin | null>(null);
   const [alunoId, setAlunoId] = useState('');
   const [ignorarLimite, setIgnorarLimite] = useState(false);
+  const [moverDia, setMoverDia] = useState(1);
+  const [moverHora, setMoverHora] = useState('');
 
   // modal de montar grade
   const [showGerar, setShowGerar] = useState(false);
@@ -41,6 +43,11 @@ export const AgendaAdmin: React.FC<AgendaAdminProps> = ({ students }) => {
   const [gerarInicio, setGerarInicio] = useState('06:00');
   const [gerarFim, setGerarFim] = useState('12:00');
   const [gerarDuracao, setGerarDuracao] = useState(60);
+  const [gerarSubstituir, setGerarSubstituir] = useState(false);
+
+  // modal de limpar grade
+  const [showLimpar, setShowLimpar] = useState(false);
+  const [limparDias, setLimparDias] = useState<number[]>([]);
 
   const carregar = useCallback(async () => {
     if (!user) return;
@@ -59,15 +66,19 @@ export const AgendaAdmin: React.FC<AgendaAdminProps> = ({ students }) => {
     carregar();
   }, [carregar]);
 
-  const executar = async (corpo: Record<string, unknown>, sucesso: string) => {
+  const executar = async (
+    corpo: Record<string, unknown>,
+    sucesso: string | ((data: any) => string)
+  ) => {
     if (!user) return;
     setBusy(true);
     try {
       const idToken = await user.getIdToken();
-      await chamarAgenda(idToken, corpo);
-      showToast(sucesso, 'success');
+      const data = await chamarAgenda(idToken, corpo);
+      showToast(typeof sucesso === 'function' ? sucesso(data) : sucesso, 'success');
       setSelecionado(null);
       setShowGerar(false);
+      setShowLimpar(false);
     } catch (err: any) {
       showToast(err.message || 'Erro ao executar a ação', 'error');
     } finally {
@@ -115,6 +126,8 @@ export const AgendaAdmin: React.FC<AgendaAdminProps> = ({ students }) => {
     setSelecionado(slot);
     setAlunoId('');
     setIgnorarLimite(false);
+    setMoverDia(slot.dayOfWeek);
+    setMoverHora(slot.time);
   };
 
   const diaSel = selecionado ? DIAS_SEMANA.find(d => d.id === selecionado.dayOfWeek) : null;
@@ -123,12 +136,30 @@ export const AgendaAdmin: React.FC<AgendaAdminProps> = ({ students }) => {
   const usadosSel = alunoSel ? (usadosPorAluno[alunoSel.id] ?? 0) : 0;
   const precisaExcecao = !!alunoSel && (limiteSel === null || usadosSel >= limiteSel);
 
+  const destinoIgualOrigem =
+    !!selecionado && moverDia === selecionado.dayOfWeek && moverHora === selecionado.time;
+  const destinoExistente = mapa.get(`${moverDia}_${moverHora}`);
+  const destinoOcupado = !!destinoExistente && !!destinoExistente.studentId && !destinoIgualOrigem;
+
   // ── montar grade ────────────────────────────────────────────────────────────
 
   const toggleDia = (id: number) =>
     setGerarDias(prev => (prev.includes(id) ? prev.filter(d => d !== id) : [...prev, id]));
 
   const previa = gerarHorarios(gerarInicio, gerarFim, gerarDuracao).length;
+
+  // ── limpar grade ────────────────────────────────────────────────────────────
+
+  const abrirLimpar = () => {
+    setLimparDias(diasComSlots.map(d => d.id));
+    setShowLimpar(true);
+  };
+
+  const toggleLimparDia = (id: number) =>
+    setLimparDias(prev => (prev.includes(id) ? prev.filter(d => d !== id) : [...prev, id]));
+
+  const livresNosDias = slots.filter(s => limparDias.includes(s.dayOfWeek) && !s.studentId).length;
+  const ocupadosNosDias = slots.filter(s => limparDias.includes(s.dayOfWeek) && !!s.studentId).length;
 
   // ── render ──────────────────────────────────────────────────────────────────
 
@@ -154,7 +185,7 @@ export const AgendaAdmin: React.FC<AgendaAdminProps> = ({ students }) => {
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={carregar}
             disabled={busy}
@@ -163,6 +194,16 @@ export const AgendaAdmin: React.FC<AgendaAdminProps> = ({ students }) => {
             <RefreshCw className="w-4 h-4" />
             Atualizar
           </button>
+          {slots.length > 0 && (
+            <button
+              onClick={abrirLimpar}
+              disabled={busy}
+              className="px-4 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition-colors flex items-center justify-center gap-2 text-sm disabled:opacity-50"
+            >
+              <Trash2 className="w-4 h-4" />
+              Limpar grade
+            </button>
+          )}
           <button
             onClick={() => setShowGerar(true)}
             className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2 text-sm"
@@ -342,25 +383,89 @@ export const AgendaAdmin: React.FC<AgendaAdminProps> = ({ students }) => {
         )}
 
         {selecionado && selecionado.studentId && (
-          <div className="space-y-4">
+          <div className="space-y-5">
             <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4">
               <p className="text-xs text-indigo-600 font-medium">Aluno neste horário</p>
               <p className="text-lg font-semibold text-indigo-900 mt-0.5">{selecionado.studentName}</p>
             </div>
-            <p className="text-xs text-gray-500">
-              Para trocar o aluno de horário, libere este e reserve outro para ele.
-            </p>
-            <button
-              onClick={() => {
-                if (!confirm(`Liberar o horário de ${selecionado.studentName}?`)) return;
-                executar({ acao: 'liberar', slotId: selecionado.id }, 'Horário liberado');
-              }}
-              disabled={busy}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition text-sm font-medium disabled:opacity-50"
-            >
-              <UserMinus className="w-4 h-4" />
-              {busy ? 'Salvando...' : 'Liberar horário'}
-            </button>
+
+            {/* Reprogramar: mover o aluno para outro dia/horário */}
+            <div className="space-y-3">
+              <p className="text-sm font-medium text-gray-700">
+                Mover {(selecionado.studentName ?? 'o aluno').split(' ')[0]} para outro horário
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <select
+                  value={moverDia}
+                  onChange={e => setMoverDia(Number(e.target.value))}
+                  className={inputClass}
+                >
+                  {DIAS_SEMANA.map(d => (
+                    <option key={d.id} value={d.id}>{d.longo}</option>
+                  ))}
+                </select>
+                <input
+                  type="time"
+                  value={moverHora}
+                  onChange={e => setMoverHora(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+              <p className={`text-xs ${destinoOcupado ? 'text-red-600' : 'text-gray-400'}`}>
+                {destinoOcupado
+                  ? `Esse horário já está ocupado por ${destinoExistente?.studentName ?? 'outro aluno'}.`
+                  : destinoExistente && !destinoIgualOrigem
+                    ? 'Esse horário já existe na grade e está livre.'
+                    : !destinoIgualOrigem && moverHora
+                      ? 'Esse horário ainda não existe na grade: ele será criado.'
+                      : 'Escolha outro dia ou horário. O horário atual fica livre depois da troca.'}
+              </p>
+              <button
+                onClick={() =>
+                  executar(
+                    { acao: 'mover', slotId: selecionado.id, dia: moverDia, horario: moverHora },
+                    'Aluno movido para o novo horário'
+                  )
+                }
+                disabled={busy || destinoIgualOrigem || destinoOcupado || !moverHora}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-700 transition text-sm font-semibold disabled:opacity-50"
+              >
+                <ArrowRight className="w-4 h-4" />
+                {busy ? 'Salvando...' : 'Mover aluno'}
+              </button>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 border-t border-gray-100 pt-4">
+              <button
+                onClick={() => {
+                  if (!confirm(`Liberar o horário de ${selecionado.studentName}? O horário continua na grade.`)) return;
+                  executar({ acao: 'liberar', slotId: selecionado.id }, 'Horário liberado');
+                }}
+                disabled={busy}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition text-sm font-medium disabled:opacity-50"
+              >
+                <UserMinus className="w-4 h-4" />
+                Liberar horário
+              </button>
+              <button
+                onClick={() => {
+                  if (
+                    !confirm(
+                      `Remover este horário? ${selecionado.studentName} perde a vaga e o horário sai da grade.`
+                    )
+                  ) return;
+                  executar(
+                    { acao: 'remover', slotId: selecionado.id, forcar: true },
+                    'Horário removido'
+                  );
+                }}
+                disabled={busy}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 border border-red-200 text-red-600 rounded-xl hover:bg-red-50 transition text-sm font-medium disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4" />
+                Remover horário
+              </button>
+            </div>
           </div>
         )}
       </Modal>
@@ -412,6 +517,22 @@ export const AgendaAdmin: React.FC<AgendaAdminProps> = ({ students }) => {
             </div>
           </div>
 
+          <label className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl cursor-pointer">
+            <input
+              type="checkbox"
+              checked={gerarSubstituir}
+              onChange={e => setGerarSubstituir(e.target.checked)}
+              className="w-4 h-4 mt-0.5"
+            />
+            <div>
+              <p className="text-sm font-medium text-amber-800">Substituir os horários livres desses dias</p>
+              <p className="text-xs text-amber-700">
+                Os horários livres dos dias marcados que não estiverem nesta nova grade serão removidos.
+                Horários com aluno nunca são alterados.
+              </p>
+            </div>
+          </label>
+
           <p className="text-xs text-gray-500">
             {previa > 0
               ? `${previa} horários por dia × ${gerarDias.length} dias = ${previa * gerarDias.length} horários`
@@ -427,16 +548,96 @@ export const AgendaAdmin: React.FC<AgendaAdminProps> = ({ students }) => {
               Cancelar
             </button>
             <button
-              onClick={() =>
+              onClick={() => {
+                if (
+                  gerarSubstituir &&
+                  !confirm('Os horários livres desses dias que não estiverem na nova grade serão removidos. Continuar?')
+                ) return;
                 executar(
-                  { acao: 'gerar', dias: gerarDias, inicio: gerarInicio, fim: gerarFim, duracao: gerarDuracao },
-                  'Grade atualizada'
-                )
-              }
+                  {
+                    acao: 'gerar',
+                    dias: gerarDias,
+                    inicio: gerarInicio,
+                    fim: gerarFim,
+                    duracao: gerarDuracao,
+                    substituir: gerarSubstituir,
+                  },
+                  data => {
+                    const partes = [`${data.criados ?? 0} criados`];
+                    if (data.removidos) partes.push(`${data.removidos} removidos`);
+                    if (data.atualizados) partes.push(`${data.atualizados} ajustados`);
+                    return `Grade atualizada: ${partes.join(', ')}`;
+                  }
+                );
+              }}
               disabled={busy || previa === 0 || gerarDias.length === 0}
               className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-700 transition text-sm font-semibold disabled:opacity-50"
             >
-              {busy ? 'Criando...' : 'Criar horários'}
+              {busy ? 'Salvando...' : gerarSubstituir ? 'Substituir grade' : 'Criar horários'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal: limpar grade */}
+      <Modal isOpen={showLimpar} onClose={() => setShowLimpar(false)} title="Limpar grade" size="lg">
+        <div className="space-y-4">
+          <p className="text-sm text-gray-500">
+            Remove todos os horários <strong>livres</strong> dos dias escolhidos. Horários com aluno ficam como estão.
+          </p>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Dias</label>
+            <div className="flex flex-wrap gap-2">
+              {diasComSlots.map(d => (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => toggleLimparDia(d.id)}
+                  className={`px-3 py-1.5 rounded-lg border text-sm font-medium transition ${
+                    limparDias.includes(d.id)
+                      ? 'bg-red-600 border-red-600 text-white'
+                      : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {d.curto}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm text-gray-700">
+            <p><strong>{livresNosDias}</strong> horário(s) livre(s) serão removidos.</p>
+            {ocupadosNosDias > 0 && (
+              <p className="text-xs text-amber-700 mt-1">
+                {ocupadosNosDias} horário(s) com aluno nesses dias serão mantidos. Para tirá-los, abra o horário e use
+                &quot;Remover horário&quot;.
+              </p>
+            )}
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button
+              onClick={() => setShowLimpar(false)}
+              disabled={busy}
+              className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition text-sm disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={() => {
+                if (!confirm(`Remover ${livresNosDias} horário(s) livre(s)?`)) return;
+                executar(
+                  { acao: 'limpar', dias: limparDias },
+                  data =>
+                    `${data.removidos ?? 0} horário(s) removido(s)` +
+                    (data.ocupadosMantidos ? `, ${data.ocupadosMantidos} com aluno mantido(s)` : '')
+                );
+              }}
+              disabled={busy || livresNosDias === 0 || limparDias.length === 0}
+              className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-700 transition text-sm font-semibold disabled:opacity-50"
+            >
+              {busy ? 'Removendo...' : 'Remover horários livres'}
             </button>
           </div>
         </div>
