@@ -13,6 +13,27 @@ export interface ResultadoWhatsApp {
   erro?: string;
 }
 
+// Limpa um secret vindo das variáveis de ambiente: tira aspas nas pontas e qualquer caractere
+// que não seja ASCII visível (espaço, quebra de linha, caracteres invisíveis de copiar/colar).
+// Um único caractere inválido faz o fetch recusar o cabeçalho ("invalid Client-Token header").
+function limparSecret(nome: string, bruto: string | undefined): string {
+  if (!bruto) return '';
+
+  const limpo = bruto
+    .trim()
+    .replace(/^["']+|["']+$/g, '')
+    .replace(/[^\x21-\x7E]/g, '');
+
+  if (limpo.length !== bruto.length) {
+    console.warn(
+      `[whatsapp] ${nome} tinha ${bruto.length - limpo.length} caractere(s) inválido(s) ou invisível(is) que foram ignorados. ` +
+      `Reenvie o secret digitando o valor no terminal.`
+    );
+  }
+
+  return limpo;
+}
+
 // Deixa só os dígitos e garante o DDI do Brasil (55). Devolve null se o número não faz sentido.
 export function normalizarTelefone(telefone: string): string | null {
   const digitos = (telefone ?? '').replace(/\D/g, '');
@@ -27,10 +48,9 @@ export function normalizarTelefone(telefone: string): string | null {
 
 /** Versão com detalhes do resultado — usada pela rota de teste e, por baixo, pelos lembretes. */
 export async function enviarWhatsAppDetalhado(telefone: string, mensagem: string): Promise<ResultadoWhatsApp> {
-  // trim(): um espaço ou quebra de linha sobrando no secret invalida a URL e o cabeçalho
-  const instanceId = process.env.ZAPI_INSTANCE_ID?.trim();
-  const token = process.env.ZAPI_TOKEN?.trim();
-  const clientToken = process.env.ZAPI_CLIENT_TOKEN?.trim();
+  const instanceId = limparSecret('ZAPI_INSTANCE_ID', process.env.ZAPI_INSTANCE_ID);
+  const token = limparSecret('ZAPI_TOKEN', process.env.ZAPI_TOKEN);
+  const clientToken = limparSecret('ZAPI_CLIENT_TOKEN', process.env.ZAPI_CLIENT_TOKEN);
 
   if (!instanceId || !token) {
     console.warn('[whatsapp] Z-API não configurado — mensagem não enviada');
